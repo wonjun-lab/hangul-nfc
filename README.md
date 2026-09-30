@@ -191,7 +191,7 @@ nfd2nfc는 그게 불가능한, **올리는 쪽 사용자**를 위한 처방입�
 
 ```sh
 /usr/bin/perl -e 'use strict; use warnings;
-use Unicode::Normalize qw(NFC);
+use Unicode::Normalize qw(compose reorder);
 use Encode qw(decode_utf8 encode_utf8);
 my @t;
 sub col {
@@ -203,23 +203,32 @@ sub col {
   }
 }
 col($_) for @ARGV;
-my ($c, $s) = (0, 0);
+my ($c, $s, $x, %ok, %bad) = (0, 0, 0);
 for my $p (sort { ($b =~ tr{/}{}) <=> ($a =~ tr{/}{}) } @t) {
   my $i = rindex($p, "/");
   my $dir  = $i == -1 ? "" : substr($p, 0, $i + 1);
   my $base = $i == -1 ? $p : substr($p, $i + 1);
   my $u = eval { my $cp = $base; decode_utf8($cp, Encode::FB_CROAK) };
   next unless defined $u;
-  my $nb = encode_utf8(NFC($u));
+  # 쪼개진 자모만 합친다(NFC와 달리 호환 한자 등은 그대로 둔다).
+  my $nb = encode_utf8(compose(reorder($u)));
   next if $nb eq $base;
   my $new = $dir . $nb;
+  my @cur = lstat($p);
+  if (@cur && $bad{$cur[0]}) { $x++; next; }
   # APFS는 정규화 비구분 → NFC 이름도 자기 자신으로 잡힌다.
   # inode를 비교해 "진짜 다른 파일"이 있을 때만 건너뛴다.
-  my @cur = lstat($p); my @tgt = lstat($new);
+  my @tgt = lstat($new);
   if (@tgt && (!@cur || $tgt[0] != $cur[0] || $tgt[1] != $cur[1])) { $s++; next; }
-  $c++ if rename($p, $new);
+  next unless rename($p, $new);
+  # HFS+·exFAT·FAT은 이름을 NFD로 되돌린다 → 볼륨마다 첫 변경만 실제로 바뀌었는지 확인.
+  if (!@cur || $ok{$cur[0]}) { $c++; next; }
+  opendir(my $d, $dir eq "" ? "." : $dir) or next;
+  my $hit = grep { $_ eq $nb } readdir($d); closedir($d);
+  if ($hit) { $ok{$cur[0]} = 1; $c++; } else { $bad{$cur[0]} = 1; $x++; }
 }
-my $msg = "이름 정리 완료: ${c}개 변경" . ($s ? ", ${s}개 건너뜀" : "");
+my $msg = "이름 정리 완료: ${c}개 변경" . ($s ? ", ${s}개 건너뜀" : "")
+        . ($x ? ", ${x}개 변경 불가(볼륨이 NFD 강제)" : "");
 system("/usr/bin/osascript", "-e",
        "display notification \"$msg\" with title \"NFC 이름 정리\"");' "$@"
 ```

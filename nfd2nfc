@@ -35,7 +35,7 @@ use Unicode::Normalize qw(NFC compose reorder);
 use Encode qw(decode_utf8 encode_utf8);
 use Getopt::Long qw(GetOptions);
 
-our $VERSION = "1.0.1";
+our $VERSION = "1.1.0";
 
 # 분리된 자모 등 결합 가능한 문자열만 합친다(= NFC에서 '분해' 단계를 뺀 것).
 # NFC는 호환 한자(U+F900~, 예: 樂 U+F914)나 Ω(U+2126) 같은 singleton까지 다른 코드포인트로
@@ -496,10 +496,33 @@ sub watch_clean_dir {
 sub watch_changed_count { return $_[0] =~ /완료:\s*(\d+)개 변경/ ? $1 : 0 }
 sub watch_run {
     my @dirs = grep { -d $_ } watch_read_list();
-    my $total = 0;
-    $total += watch_changed_count(watch_clean_dir($_)) for @dirs;
+    my ($total, @forced) = (0);
+    for my $d (@dirs) {
+        my $out = watch_clean_dir($d);
+        push @forced, $d if $out =~ /변경 불가/;
+        $total += watch_changed_count($out);
+    }
     watch_report("run", $total, scalar @dirs);
+    watch_drop_forced(@forced) if @forced;
     return 0;
+}
+# NFD 강제 볼륨(형식 목록 밖 — SMB 등)으로 드러난 폴더는 감시에서 뺀다. 판정은 프로세스마다
+# 잊히므로, 남겨 두면 매 실행의 헛 rename이 WatchPaths를 다시 깨워 10초마다 재실행된다.
+# 목록에서 빠지면 다음 실행부터 rename이 없어 루프가 끊긴다. launchctl 재로드는 실행 중인
+# 자기 자신을 종료시키므로 하지 않고 plist만 갱신한다(다음 로드부터 반영).
+sub watch_drop_forced {
+    my %drop = map { ($_ => 1) } @_;
+    my @keep = grep { !$drop{$_} } watch_read_list();
+    watch_write_list(@keep);
+    watch_write_plist() if -f watch_plist_file();
+    my $list = join(", ", @_);
+    watch_log("자동 해제(볼륨이 NFD 강제): $list");
+    warn "자동 감시 해제: $list — 이 볼륨은 파일명을 NFD로 강제해 정리할 수 없습니다\n";
+    if (!$ENV{NFD2NFC_NO_GUI}) {
+        my $msg = scalar(@_) . "개 폴더는 볼륨이 NFD를 강제해 자동 감시에서 뺐습니다";
+        system('/usr/bin/osascript', '-e',
+               qq{display notification "$msg" with title "nfd2nfc 자동 감시"});
+    }
 }
 # 로그를 남기고, 바뀐 게 있을 때만 알린다.
 sub watch_report {

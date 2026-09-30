@@ -249,6 +249,19 @@ if hdiutil create -quiet -size 8m -fs HFS+ -volname nfdtest "$HFS_IMG" >/dev/nul
     HOME="$WH" NFD2NFC_NO_GUI=1 NFD2NFC_WATCH_NO_LAUNCHCTL=1 /usr/bin/perl "$NFD2NFC" watch add "$HFS_MNT/w" >/dev/null 2>&1; rcw=$?
     nw=$(HOME="$WH" /usr/bin/perl "$NFD2NFC" watch list 2>/dev/null | grep -c "$HFS_MNT")
     if [ "$rcw" -ne 0 ] && [ "$nw" -eq 0 ]; then ok "watch add: NFD 강제 볼륨 폴더 거부"; else ng "watch add가 NFD 강제 볼륨을 등록함: rc=$rcw n=$nw"; fi
+    # 형식 목록에 없는 NFD 강제 볼륨(SMB 등) 모사: 형식 목록을 비운 사본은 rename 후 확인으로만 판정한다.
+    # 빈 폴더로 등록(add 확인 통과) → 나중에 NFD 유입 → __run이 판정 후 감시에서 빼야 하고,
+    # 다음 __run은 rename을 안 해 폴더를 건드리지 않아야 한다(아니면 WatchPaths 무한 재실행).
+    NOFT="$TMP/nfd2nfc-noftype"; sed 's/hfs|exfat|msdos/__none__/' "$NFD2NFC" > "$NOFT"; chmod +x "$NOFT"
+    WH="$TMP/home"; rm -rf "$WH"; mkdir -p "$WH" "$HFS_MNT/u"
+    HOME="$WH" NFD2NFC_NO_GUI=1 NFD2NFC_WATCH_NO_LAUNCHCTL=1 "$NOFT" watch add "$HFS_MNT/u" >/dev/null 2>&1
+    mknfd_in "$HFS_MNT/u" "보고서.hwp"
+    HOME="$WH" NFD2NFC_NO_GUI=1 NFD2NFC_WATCH_NO_LAUNCHCTL=1 "$NOFT" watch __run >/dev/null 2>&1
+    nu=$(HOME="$WH" /usr/bin/perl "$NFD2NFC" watch list 2>/dev/null | grep -c "$HFS_MNT")
+    mu_b=$(stat -f %m "$HFS_MNT/u"); sleep 1
+    HOME="$WH" NFD2NFC_NO_GUI=1 NFD2NFC_WATCH_NO_LAUNCHCTL=1 "$NOFT" watch __run >/dev/null 2>&1
+    mu_a=$(stat -f %m "$HFS_MNT/u")
+    if [ "$nu" -eq 0 ] && [ "$mu_b" = "$mu_a" ]; then ok "watch __run: 미지 NFD 강제 볼륨 폴더 자동 해제(재실행 루프 차단)"; else ng "미지 NFD 강제 볼륨 루프: 목록=${nu} mtime ${mu_b}→${mu_a}"; fi
     hdiutil detach -quiet "$HFS_MNT" >/dev/null 2>&1
 else
     printf '  - HFS+ 이미지 생성/마운트 불가 — [18] 건너뜀\n'
