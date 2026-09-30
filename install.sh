@@ -17,6 +17,7 @@ set -eu
 main() {
 REPO=wonjun-lab/hangul-nfc
 MARK='^# hangul-nfc — macOS 한글 파일명'
+LEGACY_MARK='^# nfd2nfc — macOS 한글 파일명'   # 1.x 때 이름(nfd2nfc) 설치본 식별
 # curl | sh 로 실행되면 $0은 "sh"라 파일이 아니다 — 그때는 저장소 사본을 찾지 않는다(현재 폴더의 옛 사본 오인 방지).
 HERE=""
 if [ -f "$0" ]; then HERE=$(cd "$(dirname "$0")" && pwd); fi
@@ -48,6 +49,14 @@ if [ "$FROM_SOURCE" = 0 ] && [ -n "$BREW" ]; then
         echo "오류: 이름이 같은 다른 프로그램이 이미 설치돼 있습니다: $BREW_BIN" >&2
         echo "  그 프로그램을 정리한 뒤 다시 실행하거나, ./install.sh --from-source 로 ~/.local/bin 에 설치하세요." >&2
         exit 1
+    fi
+    # 예전 이름(nfd2nfc)으로 Homebrew에 설치돼 있으면 새 이름으로 옮긴다. Homebrew의 탭 신뢰 정책 때문에
+    # 이름이 바뀐 formula는 신뢰 전이라 brew upgrade가 조용히 건너뛴다(실측) — 신뢰 등록 후 migrate 한다.
+    PREFIX=$("$BREW" --prefix)
+    if [ -d "$PREFIX/Cellar/nfd2nfc" ] && grep -rqs "$LEGACY_MARK" "$PREFIX/Cellar/nfd2nfc"; then
+        echo "  • 예전 이름(nfd2nfc) 설치본을 hangul-nfc로 옮깁니다"
+        "$BREW" trust --formula wonjun-lab/tap/hangul-nfc </dev/null >/dev/null 2>&1 || true   # 신뢰 정책 없는 옛 Homebrew면 무시
+        "$BREW" migrate hangul-nfc </dev/null
     fi
     if "$BREW" list --formula wonjun-lab/tap/hangul-nfc >/dev/null 2>&1; then
         "$BREW" upgrade wonjun-lab/tap/hangul-nfc </dev/null || true
