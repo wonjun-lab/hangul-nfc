@@ -13,7 +13,9 @@ set -eu
 
 REPO=wonjun-lab/nfd2nfc
 MARK='^# nfd2nfc — macOS 한글 파일명'
-HERE=$(cd "$(dirname "$0")" 2>/dev/null && pwd) || HERE=$(pwd)
+# curl | sh 로 실행되면 $0은 "sh"라 파일이 아니다 — 그때는 저장소 사본을 찾지 않는다(현재 폴더의 옛 사본 오인 방지).
+HERE=""
+if [ -f "$0" ]; then HERE=$(cd "$(dirname "$0")" && pwd); fi
 FROM_SOURCE=0
 for a in "$@"; do
     case "$a" in
@@ -41,8 +43,18 @@ done
 if [ "$FROM_SOURCE" = 0 ] && [ -n "$BREW" ]; then
     # Homebrew가 있으면 brew로 관리한다 — 업데이트(brew upgrade / nfd2nfc update)와 제거가 한 경로로 된다.
     echo "  • Homebrew로 설치합니다"
-    if "$BREW" list --formula nfd2nfc >/dev/null 2>&1; then
-        "$BREW" upgrade nfd2nfc || true
+    # homebrew/core에 이름이 같은 다른 도구(elgar328/nfd2nfc, Rust)가 있다. 그게 깔려 있으면 같은 명령 이름
+    # (bin/nfd2nfc)을 두고 충돌하므로, 무엇을 할지 사용자가 정하도록 멈춘다.
+    BREW_BIN="$("$BREW" --prefix)/bin/nfd2nfc"
+    if [ -e "$BREW_BIN" ] && ! grep -q "$MARK" "$BREW_BIN" 2>/dev/null; then
+        echo "오류: 이름이 같은 다른 프로그램이 이미 설치돼 있습니다: $BREW_BIN" >&2
+        echo "  (homebrew/core의 nfd2nfc — 다른 개발자의 Rust 도구로 보입니다)" >&2
+        echo "  • 그 도구를 안 쓴다면:   brew uninstall nfd2nfc  후 다시 실행" >&2
+        echo "  • 둘 다 쓰려면:          ./install.sh --from-source  (~/.local/bin 에 설치, 전체 경로로 실행)" >&2
+        exit 1
+    fi
+    if "$BREW" list --formula wonjun-lab/tap/nfd2nfc >/dev/null 2>&1; then
+        "$BREW" upgrade wonjun-lab/tap/nfd2nfc || true
     else
         "$BREW" install wonjun-lab/tap/nfd2nfc
     fi
@@ -51,8 +63,8 @@ if [ "$FROM_SOURCE" = 0 ] && [ -n "$BREW" ]; then
     OLD="$HOME/.local/bin/nfd2nfc"
     if [ -f "$OLD" ] && grep -q "$MARK" "$OLD" 2>/dev/null; then rm -f "$OLD" && echo "  ✓ 예전 설치본 정리: $OLD"; fi
 else
-    SRC="$HERE/nfd2nfc"
-    if [ ! -f "$SRC" ] || ! grep -q "$MARK" "$SRC" 2>/dev/null; then
+    SRC="${HERE:+$HERE/}nfd2nfc"
+    if [ -z "$HERE" ] || [ ! -f "$SRC" ] || ! grep -q "$MARK" "$SRC" 2>/dev/null; then
         # 저장소 밖(curl | sh)에서 실행됨 → 최신 릴리스의 스크립트를 받는다.
         TAG=$(curl -fsS -m 10 "https://api.github.com/repos/$REPO/releases/latest" \
               | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1)
@@ -71,4 +83,10 @@ else
 fi
 
 echo
-"$CLI" setup
+# setup은 1.2.0부터 있다. 릴리스·tap 반영 전에 옛 버전이 설치됐다면 파일 경로로 오인하지 않게 확인한다.
+if grep -q "^sub setup_main" "$CLI" 2>/dev/null; then
+    "$CLI" setup
+else
+    echo "CLI는 설치됐지만 이 버전($("$CLI" --version))은 Finder 메뉴 자동 설치(setup)를 지원하지 않습니다."
+    echo "  잠시 뒤 다시 실행하거나, Releases의 nfd2nfc-quick-action.zip 으로 메뉴를 설치하세요."
+fi

@@ -124,7 +124,9 @@ if [ "$link_count" -eq 1 ] && [ "$(count_nfd "$TMP/t5")" -eq 0 ]; then ok "심�
 
 # [6] 생성된 Quick Action 명령 실행. 리포 루트 산출물을 건드리지 않게 함수 모드로 $TMP에 빌드한다.
 # shellcheck source=build-workflow.sh
-( . "$HERE/build-workflow.sh"; build_workflow_bundle "$TMP/qa.workflow" ) >/dev/null 2>&1
+# 후보를 비워 내장 사본 경로를 확정적으로 검증(개발 머신에 설치본이 있어도 그것을 부르지 않게)
+# shellcheck disable=SC2030  # 서브셸 안에서만 비우는 게 의도
+( export NFD2NFC_CLI_CANDIDATES=""; . "$HERE/build-workflow.sh"; build_workflow_bundle "$TMP/qa.workflow" ) >/dev/null 2>&1
 DOC="$TMP/qa.workflow/Contents/document.wflow"
 if [ ! -f "$DOC" ]; then
     ng "[6] Quick Action 빌드 실패(document.wflow 없음)"
@@ -326,6 +328,9 @@ if [ "$rcrun" -eq 0 ] && [ "$(count_nfd "$GA")" -eq 0 ]; then ok "watch __run �
 
 # ── 설치·사용·업데이트 흐름 (HOME 격리, GUI·launchctl·네트워크·외부 명령 차단) ──
 export NFD2NFC_WATCH_NO_LAUNCHCTL=1 NFD2NFC_NO_NETWORK=1 NFD2NFC_DRY_EXTERNAL=1
+# CLI 후보를 격리 경로로 — 테스트가 /opt/homebrew/bin 등 실제 설치본을 지우거나 부르지 않게
+# shellcheck disable=SC2031  # 위 [6]의 서브셸 값과 무관하게 여기서 새로 정한다
+export NFD2NFC_CLI_CANDIDATES="$TMP/uhome/.local/bin/nfd2nfc:$TMP/ubrew/bin/nfd2nfc"
 
 # [u1] 보호 폴더(다운로드·클라우드 저장소)와 그 상위(홈)는 watch 등록 거부 + 대안 안내, 일반 폴더는 등록
 WH="$TMP/uhome"; rm -rf "$WH"; mkdir -p "$WH/Downloads" "$WH/Library/CloudStorage/Dropbox" "$TMP/u1ok"
@@ -353,7 +358,7 @@ WH="$TMP/uhome"; rm -rf "$WH"; mkdir -p "$WH" "$TMP/ucli"
 cp "$NFD2NFC" "$TMP/ucli/nfd2nfc"; chmod +x "$TMP/ucli/nfd2nfc"
 HOME="$WH" "$TMP/ucli/nfd2nfc" setup >/dev/null 2>&1; rs=$?
 QA="$WH/Library/Services/NFC로 이름 정리.workflow"
-printf '#!/bin/sh\necho called > "%s"\n' "$TMP/ucli/marker" > "$TMP/ucli/nfd2nfc"   # '업데이트된' CLI 흉내
+printf '#!/bin/sh\n# nfd2nfc-quick-action: v2\necho called > "%s"\n' "$TMP/ucli/marker" > "$TMP/ucli/nfd2nfc"   # '업데이트된' 우리 CLI 흉내(표식 포함)
 /usr/bin/plutil -extract "actions.0.action.ActionParameters.COMMAND_STRING" raw -o "$TMP/u3.sh" "$QA/Contents/document.wflow" 2>/dev/null
 HOME="$WH" /bin/zsh "$TMP/u3.sh" "$TMP/ucli" >/dev/null 2>&1
 if [ "$rs" -eq 0 ] && /usr/bin/plutil -lint "$QA/Contents/Info.plist" >/dev/null 2>&1 && [ -f "$TMP/ucli/marker" ]; then
@@ -389,7 +394,7 @@ else ng "update 이상: bad rc=$ub ($vb) good rc=$ug ($vg)"; fi
 WH="$TMP/uhome"; rm -rf "$WH"; mkdir -p "$WH" "$TMP/ubrew/Cellar/nfd2nfc/1.0/bin" "$TMP/ubrew/bin"
 cp "$NFD2NFC" "$TMP/ubrew/Cellar/nfd2nfc/1.0/bin/nfd2nfc"; ln -sf ../Cellar/nfd2nfc/1.0/bin/nfd2nfc "$TMP/ubrew/bin/nfd2nfc"
 uo=$(HOME="$WH" NFD2NFC_LATEST_VERSION=99.0.0 "$TMP/ubrew/bin/nfd2nfc" update 2>&1)
-if echo "$uo" | grep -q "upgrade nfd2nfc"; then ok "update: Homebrew 설치본은 brew upgrade로 위임"
+if echo "$uo" | grep -q "upgrade wonjun-lab/tap/nfd2nfc"; then ok "update: Homebrew 설치본은 brew upgrade로 위임"
 elif ! command -v brew >/dev/null 2>&1; then printf '  - brew 없음 — [u6] 건너뜀\n'
 else ng "update brew 위임 이상: $uo"; fi
 
@@ -408,7 +413,45 @@ hout=$(/usr/bin/perl "$NFD2NFC" -h 2>&1)
 if echo "$hout" | grep -q "setup" && echo "$hout" | grep -q "doctor" && echo "$hout" | grep -q "update" \
    && echo "$hout" | grep -q "uninstall" && echo "$hout" | grep -q "watch"; then ok "도움말: setup·doctor·update·uninstall·watch 안내"
 else ng "도움말에 하위 명령 누락"; fi
-unset NFD2NFC_WATCH_NO_LAUNCHCTL NFD2NFC_NO_NETWORK NFD2NFC_DRY_EXTERNAL
+# [u9] 하위 명령의 -h·모르는 인자는 아무것도 하지 않는다(uninstall --help가 실제로 지우면 안 됨)
+WH="$TMP/uhome"; rm -rf "$WH"; mkdir -p "$WH"
+HOME="$WH" /usr/bin/perl "$NFD2NFC" setup >/dev/null 2>&1
+QA="$WH/Library/Services/NFC로 이름 정리.workflow"
+HOME="$WH" /usr/bin/perl "$NFD2NFC" uninstall --help >/dev/null 2>&1; h1=$?
+HOME="$WH" /usr/bin/perl "$NFD2NFC" uninstall -n >/dev/null 2>&1; h2=$?
+HOME="$WH" /usr/bin/perl "$NFD2NFC" setup --bogus >/dev/null 2>&1; h3=$?
+if [ "$h1" -eq 0 ] && [ "$h2" -ne 0 ] && [ "$h3" -ne 0 ] && [ -d "$QA" ]; then ok "하위 명령 -h·모르는 인자: 사용법만 출력, 아무것도 지우지 않음"
+else ng "하위 명령 인자 처리 이상: $h1/$h2/$h3 메뉴=$([ -d "$QA" ] && echo 있음 || echo 지워짐)"; fi
+
+# [u10] quick-action build는 .workflow 번들이 아닌 경로를 지우지 않는다
+mkdir -p "$TMP/u10dir" "$TMP/u10fake.workflow"; : > "$TMP/u10dir/keep"; : > "$TMP/u10fake.workflow/keep"
+/usr/bin/perl "$NFD2NFC" quick-action build "$TMP/u10dir" >/dev/null 2>&1; q1=$?
+/usr/bin/perl "$NFD2NFC" quick-action build "$TMP/u10fake.workflow" >/dev/null 2>&1; q2=$?
+if [ "$q1" -ne 0 ] && [ "$q2" -ne 0 ] && [ -f "$TMP/u10dir/keep" ] && [ -f "$TMP/u10fake.workflow/keep" ]; then ok "quick-action build: 번들 아닌 경로는 거부(삭제 안 함)"
+else ng "quick-action build 경로 보호 실패: $q1/$q2"; fi
+
+# [u11] 메뉴는 같은 이름의 다른 프로그램(homebrew/core의 동명 도구 등)을 부르지 않고 내장 사본으로 처리
+mkdir -p "$TMP/u11/bin"; printf '#!/bin/sh\necho foreign > "%s"\n' "$TMP/u11/called" > "$TMP/u11/bin/nfd2nfc"; chmod +x "$TMP/u11/bin/nfd2nfc"
+( export NFD2NFC_CLI_CANDIDATES="$TMP/u11/bin/nfd2nfc"; /usr/bin/perl "$NFD2NFC" quick-action build "$TMP/u11/qa.workflow" ) >/dev/null 2>&1
+/usr/bin/plutil -extract "actions.0.action.ActionParameters.COMMAND_STRING" raw -o "$TMP/u11/cmd.sh" "$TMP/u11/qa.workflow/Contents/document.wflow" 2>/dev/null
+make_fixture "$TMP/u11/t"
+/bin/zsh "$TMP/u11/cmd.sh" "$TMP/u11/t" >/dev/null 2>&1
+if [ ! -f "$TMP/u11/called" ] && [ "$(count_nfd "$TMP/u11/t")" -eq 0 ]; then ok "메뉴: 동명의 다른 프로그램은 건너뛰고 내장 사본으로 정리"
+else ng "메뉴가 다른 프로그램을 호출했거나 정리 실패"; fi
+
+# [u12] uninstall은 Homebrew로 설치된 동명의 다른 도구를 brew uninstall 하지 않는다
+WH="$TMP/uhome"; rm -rf "$WH" "$TMP/ubrew"; mkdir -p "$WH" "$TMP/ubrew/Cellar/nfd2nfc/2.1.0/bin" "$TMP/ubrew/bin"
+printf '#!/bin/sh\necho rust-tool\n' > "$TMP/ubrew/Cellar/nfd2nfc/2.1.0/bin/nfd2nfc"; chmod +x "$TMP/ubrew/Cellar/nfd2nfc/2.1.0/bin/nfd2nfc"
+ln -sf ../Cellar/nfd2nfc/2.1.0/bin/nfd2nfc "$TMP/ubrew/bin/nfd2nfc"
+uo12=$(HOME="$WH" /usr/bin/perl "$NFD2NFC" uninstall 2>&1)
+if ! echo "$uo12" | grep -q "brew\|실행 예정" && [ -x "$TMP/ubrew/Cellar/nfd2nfc/2.1.0/bin/nfd2nfc" ]; then ok "uninstall: Homebrew의 동명 다른 도구는 건드리지 않음"
+else ng "uninstall이 동명의 다른 도구를 지우려 함: $uo12"; fi
+
+# [u13] 보호 폴더 판정은 대소문자를 가리지 않는다(APFS 기본: ~/downloads == ~/Downloads)
+WH="$TMP/uhome"; rm -rf "$WH"; mkdir -p "$WH/Downloads"
+HOME="$WH" /usr/bin/perl "$NFD2NFC" watch add "$WH/downloads" >/dev/null 2>&1; rc13=$?
+if [ "$rc13" -ne 0 ]; then ok "watch: 대소문자만 다른 보호 폴더(~/downloads)도 거부"; else ng "소문자 downloads 가 등록됨"; fi
+unset NFD2NFC_WATCH_NO_LAUNCHCTL NFD2NFC_NO_NETWORK NFD2NFC_DRY_EXTERNAL NFD2NFC_CLI_CANDIDATES
 
 # [버전] --version 출력 형식
 ver_out=$(/usr/bin/perl "$NFD2NFC" --version 2>&1)

@@ -66,6 +66,8 @@ brew install wonjun-lab/tap/nfd2nfc
 nfd2nfc setup        # Finder 우클릭 메뉴 설치 (처음 한 번)
 ```
 
+> ⚠️ 탭 이름 없이 `brew install nfd2nfc` 하면 **homebrew/core의 이름만 같은 다른 도구**(Rust로 된 별개 프로젝트)가 설치됩니다. 반드시 `wonjun-lab/tap/nfd2nfc` 로 설치하세요. 둘은 같은 명령 이름을 쓰므로 함께 설치할 수 없고, `install.sh`·`nfd2nfc doctor` 가 충돌을 감지해 알려 줍니다.
+
 ### <img src="https://api.iconify.design/ph/terminal-window-bold.svg?color=%236E7DF2&width=20" width="20" /> 한 줄 설치 — Homebrew가 없어도
 
 ```sh

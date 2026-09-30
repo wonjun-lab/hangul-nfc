@@ -494,8 +494,12 @@ sub watch_load {
     my $p = watch_plist_file();
     return unless -f $p;
     quiet_system('/bin/launchctl', 'bootout', watch_domain() . '/' . watch_label());   # 기존 로드 정리
-    quiet_system('/bin/launchctl', 'bootstrap', watch_domain(), $p) == 0
-        or warn "경고: 자동 감시를 켜지 못했습니다 — nfd2nfc doctor 로 확인하세요\n";
+    # bootout 직후엔 잠깐 bootstrap이 실패할 수 있어(오류 5·37) 몇 번 재시도한다.
+    for my $try (1 .. 3) {
+        return if quiet_system('/bin/launchctl', 'bootstrap', watch_domain(), $p) == 0;
+        sleep 1;
+    }
+    warn "경고: 자동 감시를 켜지 못했습니다 — nfd2nfc doctor 로 확인하세요\n";
 }
 sub watch_unload {
     return if $ENV{NFD2NFC_WATCH_NO_LAUNCHCTL};
@@ -517,11 +521,27 @@ sub protected_reason {
         ["$h/Desktop", '데스크탑'], ["$h/Documents", '문서'], ["$h/Downloads", '다운로드'],
         ["$h/Library/Mobile Documents", 'iCloud Drive'],
         ["$h/Library/CloudStorage", '클라우드 저장소(Dropbox·Google Drive 등)'],
-        ['/Volumes', '외장·네트워크 볼륨'],
     );
-    for (@prot) { my ($d, $n) = @$_; return "macOS가 $n 폴더를 백그라운드 프로그램으로부터 보호합니다(개인정보 보호)" if $p eq $d || index($p, "$d/") == 0 }
-    for (@prot) { my ($d, $n) = @$_; return "macOS가 보호하는 $n 폴더를 품은 상위 폴더입니다" if index("$d/", "$p/") == 0 }
+    # APFS 기본은 대소문자 비구분이라 ~/downloads 도 같은 폴더 — 소문자로 맞춰 비교한다.
+    my $lp = lc $p;
+    for (@prot) { my ($d, $n) = @$_; $d = lc $d; return "macOS가 $n 폴더를 백그라운드 프로그램으로부터 보호합니다(개인정보 보호)" if $lp eq $d || index($lp, "$d/") == 0 }
+    for (@prot) { my ($d, $n) = @$_; $d = lc $d; return "macOS가 보호하는 $n 폴더를 품은 상위 폴더입니다" if index("$d/", "$lp/") == 0 }
+    # /Volumes 아래는 이동식·네트워크 볼륨만 보호 대상이다(내장 고정 볼륨은 아님).
+    if ($p =~ m{^/Volumes/([^/]+)}) {
+        return 'macOS가 외장·네트워크 볼륨을 백그라운드 프로그램으로부터 보호합니다(개인정보 보호)'
+            unless internal_fixed_volume("/Volumes/$1");
+    } elsif ($p eq '/Volumes') {
+        return 'macOS가 보호하는 외장·네트워크 볼륨을 품은 상위 폴더입니다';
+    }
     return '';
+}
+# diskutil이 내장·비이동식이라고 답하는 볼륨만 참. 네트워크 볼륨은 diskutil 정보가 없어 거짓.
+sub internal_fixed_volume {
+    my ($mp) = @_;
+    my $pl = capture('/usr/sbin/diskutil', 'info', '-plist', $mp);
+    return 0 unless $pl =~ m{<key>Internal</key>\s*<true/>};
+    return 0 if $pl =~ m{<key>(?:Ejectable|RemovableMedia|Removable)</key>\s*<true/>};
+    return 1;
 }
 
 sub notify {
@@ -656,8 +676,24 @@ sub find_in_path {
 sub capture { open(my $ph, '-|', @_) or return ''; local $/; my $o = <$ph> // ''; close $ph; return $o }
 sub slurp { my ($f) = @_; open(my $fh, '<', $f) or return undef; local $/; my $s = <$fh>; close $fh; return $s }
 # CLI가 놓일 수 있는 표준 위치(Homebrew 두 곳 + 직접 설치). Quick Action·uninstall이 함께 쓴다.
-sub cli_candidates { ('/opt/homebrew/bin/nfd2nfc', '/usr/local/bin/nfd2nfc', "$ENV{HOME}/.local/bin/nfd2nfc") }
-sub brew_managed { my ($p) = @_; my $r = Cwd::abs_path($p) // ''; return $r =~ m{/Cellar/nfd2nfc/} }
+sub cli_candidates {
+    # NFD2NFC_CLI_CANDIDATES(콜론 구분)로 바꿀 수 있다 — 테스트가 실제 시스템 경로를 건드리지 않게.
+    return grep { length } split /:/, $ENV{NFD2NFC_CLI_CANDIDATES} if defined $ENV{NFD2NFC_CLI_CANDIDATES};
+    return ('/opt/homebrew/bin/nfd2nfc', '/usr/local/bin/nfd2nfc', "$ENV{HOME}/.local/bin/nfd2nfc");
+}
+# Homebrew로 설치된 "우리" nfd2nfc인가. homebrew/core에 이름이 같은 다른 도구(elgar328/nfd2nfc, Rust)가
+# 있어 Cellar 경로만으론 판단할 수 없다 — 내용이 우리 스크립트인지까지 본다.
+sub brew_managed { my ($p) = @_; my $r = Cwd::abs_path($p) // ''; return $r =~ m{/Cellar/nfd2nfc/} && is_our_script($r) }
+# brew 명령엔 항상 전체 이름을 쓴다(core의 동명 formula와 구분). 설치 영수증에 적힌 tap을 우선한다.
+sub brew_formula {
+    my ($p) = @_;
+    my $r = Cwd::abs_path($p // watch_self()) // '';
+    if ($r =~ m{^(.*/Cellar/nfd2nfc/[^/]+)/}) {
+        my $receipt = slurp("$1/INSTALL_RECEIPT.json") // '';
+        return "$1/nfd2nfc" if $receipt =~ /"tap"\s*:\s*"([^"]+)"/;
+    }
+    return 'wonjun-lab/tap/nfd2nfc';
+}
 sub is_our_script { my $s = slurp($_[0]) // ''; return $s =~ /^# nfd2nfc — macOS 한글 파일명/m }
 sub brew_cmd {
     for (qw(/opt/homebrew/bin/brew /usr/local/bin/brew)) { return $_ if -x $_ }
@@ -695,6 +731,22 @@ sub services_refresh {
     quiet_system('/usr/bin/open', '-a', 'Finder');
 }
 
+# 하위 명령 인자 검사. 모르는 인자나 -h는 아무것도 하지 않고 사용법만 보여 준다
+# (예: 'uninstall --help'·'uninstall -n'이 실제로 지워 버리지 않게).
+sub subcmd_opts {
+    my ($name, $synopsis, $allowed, @args) = @_;
+    my %ok = map { ($_ => 1) } @$allowed;
+    my %o;
+    for my $a (@args) {
+        if ($ok{$a}) { $o{$a} = 1; next }
+        my $help = $a eq '-h' || $a eq '--help';
+        warn "알 수 없는 인자: $a\n" unless $help;
+        print "사용법: nfd2nfc $name" . (length $synopsis ? " $synopsis" : '') . "\n";
+        return (undef, $help ? 0 : 1);
+    }
+    return (\%o, 0);
+}
+
 # ── Finder 우클릭 메뉴(Quick Action) ─────────────────────────────────────────
 # 메뉴는 설치된 CLI를 호출한다 — brew upgrade·nfd2nfc update로 CLI가 바뀌면 메뉴도 그대로 최신이 된다.
 # CLI가 없을 때(Releases zip만 설치)를 위해 이 스크립트 사본도 내장해 둔다.
@@ -706,11 +758,17 @@ sub qa_command {
     my ($cli, $body) = @_;
     my @cands = map { sh_quote($_) } grep { defined } $cli, cli_candidates();
     s{^'\Q$ENV{HOME}\E/}{"\$HOME"'/} for @cands;   # 홈 경로는 실행하는 사용자 기준으로
+    # 후보는 표식(qa_marker)이 든 우리 1.2.0+ 스크립트일 때만 부른다 — 같은 경로에 homebrew/core의
+    # 동명 도구나 옵션이 다른 옛 버전이 있으면 건너뛰고, 끝까지 없으면 내장 사본으로 실행한다.
+    my $loop = !@cands ? '' :
+          "for c in @cands; do\n"
+        . qq{  if [ -x "\$c" ] && grep -q '} . qa_marker() . qq{' "\$c" 2>/dev/null; then\n}
+        . qq{    "\$c" --reveal --notify -- "\$\@"; exit 0\n}
+        . "  fi\n"
+        . "done\n";
     return "# " . qa_marker() . "\n"
          . qq{[ "\$#" -gt 0 ] || exit 0\n}
-         . "for c in @cands; do\n"
-         . qq{  if [ -x "\$c" ]; then "\$c" --reveal --notify -- "\$\@"; exit 0; fi\n}
-         . "done\n"
+         . $loop
          . qq{/usr/bin/perl - --reveal --notify -- "\$\@" <<'NFD2NFC_EOF'\n}
          . $body
          . qq{NFD2NFC_EOF\nexit 0\n};
@@ -722,6 +780,10 @@ sub qa_build {
     die "스크립트 본문을 읽을 수 없음: " . watch_self() . "\n" unless defined $body;
     # heredoc 종료 표식이 본문에 한 줄로 있으면 내장 사본이 거기서 잘린다.
     die "스크립트에 'NFD2NFC_EOF' 줄이 있어 Quick Action에 내장할 수 없습니다\n" if $body =~ /^NFD2NFC_EOF$/m;
+    # 기존 번들을 지우고 다시 만들므로, 엉뚱한 경로(~/Library/Services 등)를 통째로 지우지 않게 막는다.
+    die "Quick Action 경로는 .workflow로 끝나야 합니다: $bundle\n" unless $bundle =~ /\.workflow\z/;
+    die "Quick Action이 아닌 항목이 있어 덮어쓰지 않습니다: $bundle\n"
+        if -e $bundle && !-f "$bundle/Contents/document.wflow";
     require File::Path;
     File::Path::remove_tree($bundle);
     File::Path::make_path("$bundle/Contents");
@@ -777,7 +839,9 @@ sub qa_main {
 
 # ── setup: 처음 한 번 — Finder 우클릭 메뉴 설치 ──────────────────────────────
 sub setup_main {
-    my %o = map { ($_ => 1) } @_;
+    my ($opt, $rc) = subcmd_opts('setup', '[--no-restart-finder]', ['--no-restart-finder'], @_);
+    return $rc unless $opt;
+    my %o = %$opt;
     my $cli = watch_self();
     my $had = -e qa_path();
     qa_build(qa_path(), $cli);
@@ -804,7 +868,9 @@ TXT
 
 # ── uninstall: 메뉴·자동 감시·설정·로그·CLI 모두 제거 ────────────────────────
 sub uninstall_main {
-    my %o = map { ($_ => 1) } @_;
+    my ($opt, $rc) = subcmd_opts('uninstall', '[--keep-cli]', ['--keep-cli'], @_);
+    return $rc unless $opt;
+    my %o = %$opt;
     require File::Path;
     my $n = 0;
     if (-e watch_plist_file() || -e watch_support_dir()) {
@@ -824,7 +890,7 @@ sub uninstall_main {
         my ($brew_link) = grep { -l $_ && brew_managed($_) } cli_candidates();
         if ($brew_link || brew_managed($self)) {
             my $brew = brew_cmd();
-            if ($brew) { run_external($brew, 'uninstall', 'nfd2nfc') == 0 and print("✓ Homebrew에서 CLI 제거\n") }
+            if ($brew) { run_external($brew, 'uninstall', brew_formula($brew_link // $self)) == 0 and print("✓ Homebrew에서 CLI 제거\n") }
             else       { print "! Homebrew 설치본입니다 — 'brew uninstall nfd2nfc'로 지우세요\n" }
         }
         # 직접 설치한 사본(install.sh 등)만 지운다 — 심링크(brew)·다른 프로그램 파일은 건드리지 않는다.
@@ -842,14 +908,22 @@ sub uninstall_main {
 
 # ── doctor: 설치·메뉴·자동 감시·업데이트 상태 진단 ────────────────────────────
 sub doctor_main {
+    my ($opt, $rc) = subcmd_opts('doctor', '', [], @_);
+    return $rc unless $opt;
     my $bad = 0;
     my $self = watch_self();
     my $how  = brew_managed($self) ? 'Homebrew' : '직접 설치';
     print "nfd2nfc $VERSION — $self ($how)\n";
 
     my $inpath = find_in_path('nfd2nfc');
-    if ($inpath) { print "✓ 터미널 명령: $inpath\n" }
-    else         { print "! 터미널 PATH에 없음 — 'nfd2nfc setup'이 추가 방법을 안내합니다\n" }
+    if (!$inpath) { print "! 터미널 PATH에 없음 — 'nfd2nfc setup'이 추가 방법을 안내합니다\n" }
+    elsif (!is_our_script(Cwd::abs_path($inpath) // $inpath)) {
+        # homebrew/core의 동명 도구(elgar328/nfd2nfc, Rust)가 PATH에서 먼저 잡히는 경우
+        print "✗ 터미널의 'nfd2nfc'는 다른 프로그램입니다: $inpath (homebrew/core의 동명 도구?)\n"
+            . "    → 그 도구를 안 쓰면 'brew uninstall nfd2nfc', 쓰면 이 도구는 전체 경로로 실행하세요: $self\n";
+        $bad = 1;
+    }
+    else { print "✓ 터미널 명령: $inpath\n" }
 
     if (-e qa_path()) {
         my $wf = slurp(qa_path() . '/Contents/document.wflow') // '';
@@ -887,6 +961,8 @@ sub doctor_main {
 
 # ── update: 설치 방식에 맞춰 최신 버전으로 ──────────────────────────────────
 sub update_main {
+    my ($opt, $rc) = subcmd_opts('update', '', [], @_);
+    return $rc unless $opt;
     my $latest = latest_version();
     if (!defined $latest) { warn "최신 버전을 확인할 수 없습니다(네트워크 확인)\n"; return 1 }
     if (!version_gt($latest, $VERSION)) { print "이미 최신입니다 (nfd2nfc $VERSION)\n"; return 0 }
@@ -894,10 +970,11 @@ sub update_main {
     my $self = watch_self();
     if (brew_managed($self)) {
         my $brew = brew_cmd() or do { warn "brew를 찾을 수 없습니다\n"; return 1 };
-        return run_external($brew, 'upgrade', 'nfd2nfc');
+        return run_external($brew, 'upgrade', brew_formula());
     }
     (my $dir = $self) =~ s{/[^/]*$}{};
-    if (-d "$dir/.git") { print "git 저장소 사본입니다 — 'git pull'로 업데이트하세요\n"; return 1 }
+    # .git이 파일인 worktree·submodule도 잡도록 -e로 본다(덮어쓰면 커밋 안 한 수정이 사라진다).
+    if (-e "$dir/.git") { print "git 저장소 사본입니다 — 'git pull'로 업데이트하세요\n"; return 1 }
     if (!-w $self || !-w $dir) { warn "쓰기 권한이 없어 바꿀 수 없습니다: $self\n"; return 1 }
     my $url = sprintf($ENV{NFD2NFC_UPDATE_URL} // 'https://raw.githubusercontent.com/wonjun-lab/nfd2nfc/v%s/nfd2nfc', $latest);
     my $tmp = "$self.update.$$";
