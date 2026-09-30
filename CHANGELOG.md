@@ -6,6 +6,16 @@
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-10-01
+
+### Fixed (SMB·NAS 실측 후속 — Synology DSM 7.4)
+- **SMB(`smbfs`) 볼륨을 NFD 강제 형식으로 인식** — 실측 결과 macOS SMB 클라이언트는 이름을 조합형으로 보내 서버엔 NFC로 저장되고, 읽을 때는 항상 NFD로 보여 준다. 1.1.0은 안전망으로 "변경 불가"를 판정했지만 실행마다 헛 rename 1회를 했고 문구도 부정확했다. 이제 rename을 시도하지 않고, `watch add`도 SMB 폴더 등록을 거부한다.
+- 볼륨 형식 판정을 **대상 경로의 가장 긴 마운트 지점 접두어**로 변경 — 다른 마운트를 stat하지 않아 끊긴 SMB·NFS 마운트가 있어도 멈추지 않는다. 마운트 지점 비교는 NFC로 맞춰 한글 볼륨 이름(mount 출력은 NFD)에서도 정확하다.
+- 경고 문구를 형식별 실측 동작에 맞게 정정(HFS+: 디스크가 NFD / exFAT·FAT: 디스크는 조합형 / SMB: 서버는 조합형, 서버에 NFD로 저장된 이름은 서버에서 정리 / 미상: 중립 문구).
+
+### Added
+- README: NAS에 NFD 바이트로 저장된 이름(rsync·scp 등으로 옮긴 파일)은 Mac에서 SMB로 **열 수도 바꿀 수도 없음**을 명시하고, NAS에서 직접 정리하는 `python3` 스크립트 제공(Synology DSM엔 perl이 없음; 호환 한자 보존 규칙 동일). DSM 7.4에서 정리 후 Mac에서 정상으로 열리는 것까지 확인.
+
 ## [1.1.0] - 2026-10-01
 
 ### Fixed (볼륨 형식·문자 보존·자동 감시 진단 후속)
@@ -62,6 +72,7 @@
 - `install.sh` BIN_DIR 선택의 도달 불가능한 `elif` 죽은 코드 정리.
 - README 영문 사용법 한 줄에 누락됐던 `--reveal`/`-h` 추가.
 
+[1.1.1]: https://github.com/wonjun-lab/nfd2nfc/releases/tag/v1.1.1
 [1.1.0]: https://github.com/wonjun-lab/nfd2nfc/releases/tag/v1.1.0
 
 ## [1.0.1] - 2026-06-01

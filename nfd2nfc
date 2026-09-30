@@ -35,7 +35,7 @@ use Unicode::Normalize qw(NFC compose reorder);
 use Encode qw(decode_utf8 encode_utf8);
 use Getopt::Long qw(GetOptions);
 
-our $VERSION = "1.1.0";
+our $VERSION = "1.1.1";
 
 # 분리된 자모 등 결합 가능한 문자열만 합친다(= NFC에서 '분해' 단계를 뺀 것).
 # NFC는 호환 한자(U+F900~, 예: 樂 U+F914)나 Ω(U+2126) 같은 singleton까지 다른 코드포인트로
@@ -177,40 +177,58 @@ collect($_, 1) for @ARGV;
 # 2) 깊은 경로부터 처리(자식 → 부모) 해야 폴더 이름을 바꿔도 경로가 안 깨짐
 my @sorted = sort { ($b =~ tr{/}{}) <=> ($a =~ tr{/}{}) } @targets;
 
-# 파일명을 NFD로 강제 저장하는 볼륨(HFS+·exFAT·FAT)에선 NFC로 rename해도 NFD로 되돌아간다.
+# macOS에서 파일명이 항상 NFD로 보이는 볼륨(HFS+·exFAT·FAT·SMB)에선 NFC로 rename해도 NFD로 보인다.
 # 이 헛 rename은 '변경'으로 거짓 집계되고, 디렉토리 변경 이벤트를 일으켜 watch(launchd
 # WatchPaths)를 무한 재실행시킨다. 그래서 그런 볼륨의 항목은 rename을 시도하지 않는다.
-our %FSTYPE_BY_DEV;                    # st_dev → 파일시스템 형식(mount 테이블 1회 조회)
+our @MOUNTS;                           # [마운트 지점(NFC 문자열), 형식] — mount 테이블 1회 조회
+our %FSTYPE_BY_DEV;                    # st_dev → 파일시스템 형식 캐시
 our %NFD_FORCED;                       # st_dev → 1(NFD 강제)/0(정상 확인). 볼륨당 1회 판정·경고
 
-sub nfd_forcing_fstype { return (shift // '') =~ /^(?:hfs|exfat|msdos)$/ }
+sub nfd_forcing_fstype { return (shift // '') =~ /^(?:hfs|exfat|msdos|smbfs)$/ }
 
-sub fstype_of_dev {
-    my ($dev) = @_;
-    if (!%FSTYPE_BY_DEV) {
-        $FSTYPE_BY_DEV{''} = '';           # 조회 완료 표시(실패해도 재조회 안 함)
-        if (open(my $mh, '-|', '/sbin/mount')) {
-            while (my $l = <$mh>) {
-                # 예) /dev/disk5s1 on /Volumes/USB 드라이브 (exfat, local, nodev, nosuid)
-                next unless $l =~ /^.*? on (.*) \(([^,()]+)[,)]/;
-                # 관심 형식만 stat한다 — 연결이 끊긴 SMB·NFS 마운트를 stat하면 오래 멈출 수 있다.
-                next unless nfd_forcing_fstype($2);
-                my @st = stat($1);
-                $FSTYPE_BY_DEV{$st[0]} //= $2 if @st;
-            }
-            close $mh;
+sub nfc_str { my $s = shift; my $u = eval { decode_utf8($s, Encode::FB_CROAK) }; return defined $u ? NFC($u) : $s }
+
+# 경로가 속한 볼륨의 형식 — 가장 긴 마운트 지점 접두어로 찾는다. 다른 마운트는 stat하지 않으므로
+# 연결이 끊긴 SMB·NFS 마운트가 있어도 멈추지 않는다. 결과는 st_dev별로 캐시한다.
+sub fstype_of {
+    my ($dev, $path) = @_;
+    return $FSTYPE_BY_DEV{$dev} if defined $FSTYPE_BY_DEV{$dev};
+    if (!@MOUNTS && open(my $mh, '-|', '/sbin/mount')) {
+        while (my $l = <$mh>) {
+            # 예) //user@nas/home on /Volumes/home (smbfs, nodev, nosuid, mounted by user)
+            push @MOUNTS, [nfc_str($1), $2] if $l =~ /^.*? on (.*) \(([^,()]+)[,)]/;
         }
+        close $mh;
     }
-    return $FSTYPE_BY_DEV{$dev} // '';
+    # 디렉토리는 자신(= $dev의 볼륨; 마운트 지점 자체일 수 있음), 파일·심링크는 부모 디렉토리로 찾는다.
+    my $i = rindex($path, '/');
+    my $probe = (-d $path && !-l $path) ? $path
+              : $i < 0 ? '.' : $i == 0 ? '/' : substr($path, 0, $i);
+    my $abs = Cwd::abs_path($probe);
+    return '' unless defined $abs;
+    $abs = nfc_str($abs);
+    my ($best, $type) = (-1, '');
+    for my $m (@MOUNTS) {
+        my ($mp, $t) = @$m;
+        next unless $mp eq '/' || $abs eq $mp || index($abs, "$mp/") == 0;
+        ($best, $type) = (length $mp, $t) if length $mp > $best;
+    }
+    return $FSTYPE_BY_DEV{$dev} = $type;
 }
 
 sub mark_nfd_forced {
     my ($dev, $path, $why) = @_;
     $NFD_FORCED{$dev} = 1;
-    # exFAT·FAT은 디스크엔 조합형(UTF-16)으로 저장하고 macOS가 읽을 때만 NFD로 보여 준다(실측).
-    my $note = $why =~ /^(?:exfat|msdos)$/
-        ? '디스크엔 이미 조합형으로 저장돼 윈도우에서 직접 열면 정상이지만, 이 Mac에선 항상 NFD로 보여 바꿀 수 없습니다'
-        : '파일명을 NFD로 강제 저장해 바꿀 수 없습니다';
+    # 실측: HFS+는 디스크에 NFD로 저장. exFAT·FAT은 디스크엔 조합형(UTF-16)이고 macOS가 읽을 때만
+    # NFD로 보여 준다. SMB는 서버에 조합형으로 저장되고(Mac이 NFC로 보냄) 역시 NFD로 보여 주며,
+    # 서버에 NFD 바이트로 저장된 이름은 Mac에서 열 수도 바꿀 수도 없다(서버에서 직접 정리해야 함).
+    my %note = (
+        hfs   => '파일명을 NFD로 강제 저장해 바꿀 수 없습니다',
+        exfat => '디스크엔 이미 조합형으로 저장돼 윈도우에서 직접 열면 정상이지만, 이 Mac에선 항상 NFD로 보여 바꿀 수 없습니다',
+        smbfs => '서버엔 조합형으로 저장되지만 이 Mac에선 항상 NFD로 보여 바꿀 수 없습니다(서버에 NFD로 저장된 이름은 서버에서 직접 정리)',
+    );
+    $note{msdos} = $note{exfat};
+    my $note = $note{$why} // '이 Mac에선 파일명이 항상 NFD로 보여 바꿀 수 없습니다';
     warn "경고: 이 볼륨($why)은 $note — 같은 볼륨 항목은 건너뜀(업로드하려면 APFS로 복사 후 정리): $path\n";
 }
 
@@ -218,7 +236,7 @@ sub mark_nfd_forced {
 sub nfd_forced {
     my ($dev, $path) = @_;
     return $NFD_FORCED{$dev} if defined $NFD_FORCED{$dev};
-    my $t = fstype_of_dev($dev);
+    my $t = fstype_of($dev, $path);
     return 0 unless nfd_forcing_fstype($t);   # 모르는 형식은 rename 후 stored_as_given이 판정
     mark_nfd_forced($dev, $path, $t);
     return 1;
@@ -234,7 +252,7 @@ sub stored_as_given {
     while (defined(my $e = readdir $dh)) { if ($e eq $newbase) { $found = 1; last } }
     closedir $dh;
     if ($found) { $NFD_FORCED{$dev} = 0; return 1 }
-    mark_nfd_forced($dev, $path, fstype_of_dev($dev) || '알 수 없는 형식');
+    mark_nfd_forced($dev, $path, fstype_of($dev, $path) || '알 수 없는 형식');
     return 0;
 }
 
@@ -543,7 +561,7 @@ sub watch_add {
         my $abs = watch_abs($arg);
         if (!defined $abs || !-d $abs) { warn "폴더가 아니거나 없음: $arg\n"; next; }
         # NFD 강제 볼륨(HFS+·exFAT·FAT)은 정리가 불가능해 등록해 봐야 헛 실행만 반복된다.
-        my $fs = fstype_of_dev((stat $abs)[0]);
+        my $fs = fstype_of((stat $abs)[0], $abs);
         if (nfd_forcing_fstype($fs)) {
             warn "등록 불가: $arg — 이 볼륨($fs)의 파일명은 macOS에서 항상 NFD라 정리할 수 없습니다\n";
             next;
