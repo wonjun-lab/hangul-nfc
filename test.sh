@@ -324,6 +324,92 @@ mknfd_in "$GA" "새.txt"
 HOME="$WH" NFD2NFC_NO_GUI=1 NFD2NFC_WATCH_NO_LAUNCHCTL=1 /usr/bin/perl "$NFD2NFC" watch __run >/dev/null 2>&1; rcrun=$?
 if [ "$rcrun" -eq 0 ] && [ "$(count_nfd "$GA")" -eq 0 ]; then ok "watch __run 미존재 폴더 견고성"; else ng "watch __run 견고성 이상: rc=$rcrun"; fi
 
+# ── 설치·사용·업데이트 흐름 (HOME 격리, GUI·launchctl·네트워크·외부 명령 차단) ──
+export NFD2NFC_WATCH_NO_LAUNCHCTL=1 NFD2NFC_NO_NETWORK=1 NFD2NFC_DRY_EXTERNAL=1
+
+# [u1] 보호 폴더(다운로드·클라우드 저장소)와 그 상위(홈)는 watch 등록 거부 + 대안 안내, 일반 폴더는 등록
+WH="$TMP/uhome"; rm -rf "$WH"; mkdir -p "$WH/Downloads" "$WH/Library/CloudStorage/Dropbox" "$TMP/u1ok"
+e1=$(HOME="$WH" /usr/bin/perl "$NFD2NFC" watch add "$WH/Downloads" 2>&1); r1=$?
+HOME="$WH" /usr/bin/perl "$NFD2NFC" watch add "$WH/Library/CloudStorage/Dropbox" >/dev/null 2>&1; r2=$?
+e3=$(HOME="$WH" /usr/bin/perl "$NFD2NFC" watch add "$WH" 2>&1); r3=$?
+HOME="$WH" /usr/bin/perl "$NFD2NFC" watch add "$TMP/u1ok" >/dev/null 2>&1; r4=$?
+nl=$(HOME="$WH" /usr/bin/perl "$NFD2NFC" watch list 2>/dev/null | grep -c '•')
+if [ "$r1" -ne 0 ] && [ "$r2" -ne 0 ] && [ "$r3" -ne 0 ] && [ "$r4" -eq 0 ] && [ "$nl" -eq 1 ] \
+   && echo "$e1" | grep -q "빠른 동작" && echo "$e3" | grep -q "상위 폴더"; then
+    ok "watch: macOS 보호 폴더·그 상위는 거부(대안 안내), 일반 폴더는 등록"
+else ng "watch 보호 폴더 처리 이상: r=$r1/$r2/$r3/$r4 n=$nl"; fi
+
+# [u2] 예전 버전이 등록해 둔 보호 폴더는 __run이 조용히 실패하지 않고 감시에서 빼고 기록한다
+WH="$TMP/uhome"; rm -rf "$WH"; mkdir -p "$WH/Downloads" "$TMP/u2ok"
+HOME="$WH" /usr/bin/perl "$NFD2NFC" watch add "$TMP/u2ok" >/dev/null 2>&1
+( cd "$WH" && pwd -P ) | sed 's|$|/Downloads|' >> "$WH/Library/Application Support/nfd2nfc/folders.list"
+HOME="$WH" /usr/bin/perl "$NFD2NFC" watch __run >/dev/null 2>&1
+nl=$(HOME="$WH" /usr/bin/perl "$NFD2NFC" watch list 2>/dev/null | grep -c '•')
+if [ "$nl" -eq 1 ] && grep -q "자동 해제" "$WH/Library/Logs/nfd2nfc-watch.log"; then ok "watch __run: 예전에 등록된 보호 폴더 자동 해제·기록"
+else ng "보호 폴더 자동 해제 안 됨: n=$nl"; fi
+
+# [u3] setup이 만든 Finder 메뉴는 설치된 CLI를 호출한다 → CLI만 바꿔도(업데이트) 메뉴가 따라온다
+WH="$TMP/uhome"; rm -rf "$WH"; mkdir -p "$WH" "$TMP/ucli"
+cp "$NFD2NFC" "$TMP/ucli/nfd2nfc"; chmod +x "$TMP/ucli/nfd2nfc"
+HOME="$WH" "$TMP/ucli/nfd2nfc" setup >/dev/null 2>&1; rs=$?
+QA="$WH/Library/Services/NFC로 이름 정리.workflow"
+printf '#!/bin/sh\necho called > "%s"\n' "$TMP/ucli/marker" > "$TMP/ucli/nfd2nfc"   # '업데이트된' CLI 흉내
+/usr/bin/plutil -extract "actions.0.action.ActionParameters.COMMAND_STRING" raw -o "$TMP/u3.sh" "$QA/Contents/document.wflow" 2>/dev/null
+HOME="$WH" /bin/zsh "$TMP/u3.sh" "$TMP/ucli" >/dev/null 2>&1
+if [ "$rs" -eq 0 ] && /usr/bin/plutil -lint "$QA/Contents/Info.plist" >/dev/null 2>&1 && [ -f "$TMP/ucli/marker" ]; then
+    ok "setup: Finder 메뉴 설치 + 메뉴가 설치된 CLI를 호출(업데이트 자동 반영)"
+else ng "setup/메뉴 CLI 호출 이상: rc=$rs"; fi
+
+# [u4] doctor: 정상 설치는 0, 예전 방식 메뉴·새 버전은 안내와 함께 비0
+WH="$TMP/uhome"; rm -rf "$WH"; mkdir -p "$WH"
+HOME="$WH" /usr/bin/perl "$NFD2NFC" setup >/dev/null 2>&1
+HOME="$WH" /usr/bin/perl "$NFD2NFC" doctor >/dev/null 2>&1; d1=$?
+d2o=$(HOME="$WH" NFD2NFC_LATEST_VERSION=99.0.0 /usr/bin/perl "$NFD2NFC" doctor 2>&1); d2=$?
+sed -i '' '/nfd2nfc-quick-action: v2/d' "$WH/Library/Services/NFC로 이름 정리.workflow/Contents/document.wflow"
+d3o=$(HOME="$WH" /usr/bin/perl "$NFD2NFC" doctor 2>&1); d3=$?
+if [ "$d1" -eq 0 ] && [ "$d2" -ne 0 ] && echo "$d2o" | grep -q "nfd2nfc update" && [ "$d3" -ne 0 ] && echo "$d3o" | grep -q "예전 방식"; then
+    ok "doctor: 정상 0 · 새 버전/예전 메뉴는 조치 안내 + 비0"
+else ng "doctor 이상: $d1/$d2/$d3"; fi
+
+# [u5] update(직접 설치본): 받은 파일을 검증해 교체, 깨진 파일이면 원본 유지
+WH="$TMP/uhome"; rm -rf "$WH"; mkdir -p "$WH/.local/bin" "$TMP/uup"
+cp "$NFD2NFC" "$WH/.local/bin/nfd2nfc"; chmod +x "$WH/.local/bin/nfd2nfc"
+# shellcheck disable=SC2016  # sed 식 안의 $VERSION은 perl 변수(셸 확장 아님)
+sed 's/^our \$VERSION = ".*";/our $VERSION = "99.0.0";/' "$NFD2NFC" > "$TMP/uup/good-99.0.0"
+printf '<html>404</html>\n' > "$TMP/uup/bad-99.0.0"
+HOME="$WH" NFD2NFC_LATEST_VERSION=99.0.0 NFD2NFC_UPDATE_URL="file://$TMP/uup/bad-%s" "$WH/.local/bin/nfd2nfc" update >/dev/null 2>&1; ub=$?
+vb=$("$WH/.local/bin/nfd2nfc" --version)
+HOME="$WH" NFD2NFC_LATEST_VERSION=99.0.0 NFD2NFC_UPDATE_URL="file://$TMP/uup/good-%s" "$WH/.local/bin/nfd2nfc" update >/dev/null 2>&1; ug=$?
+vg=$("$WH/.local/bin/nfd2nfc" --version)
+if [ "$ub" -ne 0 ] && [ "$vb" != "nfd2nfc 99.0.0" ] && [ "$ug" -eq 0 ] && [ "$vg" = "nfd2nfc 99.0.0" ]; then
+    ok "update: 검증 실패 시 원본 유지, 정상 파일로 교체"
+else ng "update 이상: bad rc=$ub ($vb) good rc=$ug ($vg)"; fi
+
+# [u6] update(Homebrew 설치본): brew upgrade로 위임
+WH="$TMP/uhome"; rm -rf "$WH"; mkdir -p "$WH" "$TMP/ubrew/Cellar/nfd2nfc/1.0/bin" "$TMP/ubrew/bin"
+cp "$NFD2NFC" "$TMP/ubrew/Cellar/nfd2nfc/1.0/bin/nfd2nfc"; ln -sf ../Cellar/nfd2nfc/1.0/bin/nfd2nfc "$TMP/ubrew/bin/nfd2nfc"
+uo=$(HOME="$WH" NFD2NFC_LATEST_VERSION=99.0.0 "$TMP/ubrew/bin/nfd2nfc" update 2>&1)
+if echo "$uo" | grep -q "upgrade nfd2nfc"; then ok "update: Homebrew 설치본은 brew upgrade로 위임"
+elif ! command -v brew >/dev/null 2>&1; then printf '  - brew 없음 — [u6] 건너뜀\n'
+else ng "update brew 위임 이상: $uo"; fi
+
+# [u7] uninstall: 메뉴·감시·설정·로그와 표준 위치의 직접 설치 CLI를 지우고, 남의 파일·저장소 사본은 둔다
+WH="$TMP/uhome"; rm -rf "$WH"; mkdir -p "$WH/.local/bin" "$TMP/u7w"
+cp "$NFD2NFC" "$WH/.local/bin/nfd2nfc"; chmod +x "$WH/.local/bin/nfd2nfc"
+HOME="$WH" "$WH/.local/bin/nfd2nfc" setup >/dev/null 2>&1
+HOME="$WH" "$WH/.local/bin/nfd2nfc" watch add "$TMP/u7w" >/dev/null 2>&1
+HOME="$WH" /usr/bin/perl "$NFD2NFC" uninstall >/dev/null 2>&1; ru=$?
+left=$(find "$WH/Library" "$WH/.local/bin" -name '*nfd2nfc*' -o -name 'NFC로 이름 정리.workflow' 2>/dev/null | wc -l | tr -d ' ')
+if [ "$ru" -eq 0 ] && [ "$left" -eq 0 ] && [ -f "$NFD2NFC" ]; then ok "uninstall: 메뉴·감시·설정·로그·CLI 제거, 저장소 사본은 보존"
+else ng "uninstall 잔여물 ${left}개(rc=$ru)"; fi
+
+# [u8] 도움말이 모든 하위 명령을 안내
+hout=$(/usr/bin/perl "$NFD2NFC" -h 2>&1)
+if echo "$hout" | grep -q "setup" && echo "$hout" | grep -q "doctor" && echo "$hout" | grep -q "update" \
+   && echo "$hout" | grep -q "uninstall" && echo "$hout" | grep -q "watch"; then ok "도움말: setup·doctor·update·uninstall·watch 안내"
+else ng "도움말에 하위 명령 누락"; fi
+unset NFD2NFC_WATCH_NO_LAUNCHCTL NFD2NFC_NO_NETWORK NFD2NFC_DRY_EXTERNAL
+
 # [버전] --version 출력 형식
 ver_out=$(/usr/bin/perl "$NFD2NFC" --version 2>&1)
 if echo "$ver_out" | grep -Eq '^nfd2nfc [0-9]+\.[0-9]+\.[0-9]+$'; then ok "--version 출력 형식"; else ng "--version 형식 이상: $ver_out"; fi

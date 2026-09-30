@@ -2,93 +2,73 @@
 #
 # install.sh — nfd2nfc 설치 (한 줄로 끝)
 #
-#   ./install.sh
+#   ./install.sh                  # Homebrew가 있으면 brew로, 없으면 ~/.local/bin에 설치
+#   ./install.sh --from-source    # 이 저장소의 nfd2nfc를 그대로 ~/.local/bin에 설치(개발용)
+#   curl -fsSL https://raw.githubusercontent.com/wonjun-lab/nfd2nfc/main/install.sh | sh
 #
-# 하는 일:
-#   1) Finder 우클릭 메뉴(Quick Action) "NFC로 이름 정리"를 ~/Library/Services 에 설치
-#      → 더블클릭·보안 승인 없이 즉시 Finder 우클릭 메뉴에 나타남
-#   2) CLI `nfd2nfc` 명령을 PATH(/usr/local/bin 또는 ~/.local/bin)에 설치
-#
-# 제거: ./uninstall.sh
+# 설치 뒤 `nfd2nfc setup`으로 Finder 우클릭 메뉴까지 만든다.
+# 업데이트: nfd2nfc update · 상태 점검: nfd2nfc doctor · 제거: nfd2nfc uninstall
 #
 set -eu
 
-HERE=$(cd "$(dirname "$0")" && pwd)
-WORKFLOW_NAME="NFC로 이름 정리"
-SERVICES_DIR="$HOME/Library/Services"
-SCRIPT_SRC="$HERE/nfd2nfc"
-
-[ -f "$SCRIPT_SRC" ] || { echo "오류: $SCRIPT_SRC 가 없습니다."; exit 1; }
+REPO=wonjun-lab/nfd2nfc
+MARK='^# nfd2nfc — macOS 한글 파일명'
+HERE=$(cd "$(dirname "$0")" 2>/dev/null && pwd) || HERE=$(pwd)
+FROM_SOURCE=0
+for a in "$@"; do
+    case "$a" in
+        --from-source) FROM_SOURCE=1 ;;
+        *) echo "알 수 없는 옵션: $a" >&2; exit 2 ;;
+    esac
+done
 
 echo "▸ nfd2nfc 설치를 시작합니다."
 
-# ── 1) Finder Quick Action 설치 ────────────────────────────────────────────
-# build-workflow.sh의 빌더로 현재 스크립트를 임베드한 번들을 곧바로 Services에 생성.
-# shellcheck source=build-workflow.sh
-. "$HERE/build-workflow.sh"
-mkdir -p "$SERVICES_DIR"
-build_workflow_bundle "$SERVICES_DIR/$WORKFLOW_NAME.workflow"
-echo "  ✓ Finder 우클릭 메뉴 설치: $SERVICES_DIR/$WORKFLOW_NAME.workflow"
-
-# Quick Action이 메뉴에 즉시 보이도록 서비스 캐시 갱신 + Finder 새로고침(실패해도 무방).
-# Finder를 새로고침하지 않으면 새 빠른 동작이 우클릭 메뉴에 바로 안 뜬다.
-/System/Library/CoreServices/pbs -update >/dev/null 2>&1 || true
-/System/Library/CoreServices/pbs -flush  >/dev/null 2>&1 || true
-# killall(강제 종료)은 진행 중인 Finder 복사/이동/이름변경을 끊을 수 있어, AppleEvent로
-# graceful하게 재시작을 요청한다(진행 중 작업이 있으면 Finder가 거부하므로 더 안전).
-osascript -e 'tell application "Finder" to quit' >/dev/null 2>&1 || true
-sleep 1
-open -a Finder >/dev/null 2>&1 || true
-
-# ── 2) CLI 설치 ────────────────────────────────────────────────────────────
-# CLI를 sudo 없이 설치할 bin 디렉토리 선택.
-# 1순위: 이미 PATH에 있으면서 쓰기 가능한 표준 위치 → 그래야 설치 직후 바로 'nfd2nfc'가 잡힌다.
-#        (Apple Silicon Homebrew=/opt/homebrew/bin, Intel Homebrew=/usr/local/bin)
-# 2순위: 쓰기 가능한 표준 위치(아직 PATH에 없을 수 있음).
-# 3순위: ~/.local/bin (항상 쓰기 가능하나 기본 PATH엔 없을 수 있어 아래에서 안내).
-BIN_DIR=""
-for d in /opt/homebrew/bin /usr/local/bin; do
-    [ -d "$d" ] && [ -w "$d" ] || continue
-    case ":$PATH:" in *":$d:"*) BIN_DIR="$d"; break ;; esac
+# 1.1.x 이하의 install.sh는 Homebrew 경로(/opt/homebrew/bin 등)에 일반 파일을 뒀다. 이 사본은
+# 이후 brew install의 링크 단계와 충돌하므로 치운다 — 우리 스크립트인 일반 파일만(심링크는 brew 것).
+for f in /opt/homebrew/bin/nfd2nfc /usr/local/bin/nfd2nfc; do
+    if [ -f "$f" ] && [ ! -L "$f" ] && grep -q "$MARK" "$f" 2>/dev/null; then
+        rm -f "$f" && echo "  ✓ 예전 설치본 정리: $f"
+    fi
 done
-if [ -z "$BIN_DIR" ]; then
-    for d in /opt/homebrew/bin /usr/local/bin; do
-        if [ -d "$d" ] && [ -w "$d" ]; then BIN_DIR="$d"; break; fi
-    done
+
+BREW=""
+for b in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+    if [ -x "$b" ]; then BREW=$b; break; fi
+done
+[ -n "$BREW" ] || BREW=$(command -v brew 2>/dev/null || true)
+
+if [ "$FROM_SOURCE" = 0 ] && [ -n "$BREW" ]; then
+    # Homebrew가 있으면 brew로 관리한다 — 업데이트(brew upgrade / nfd2nfc update)와 제거가 한 경로로 된다.
+    echo "  • Homebrew로 설치합니다"
+    if "$BREW" list --formula nfd2nfc >/dev/null 2>&1; then
+        "$BREW" upgrade nfd2nfc || true
+    else
+        "$BREW" install wonjun-lab/tap/nfd2nfc
+    fi
+    CLI="$("$BREW" --prefix)/bin/nfd2nfc"
+    # 예전에 직접 설치한 사본이 PATH에서 brew 설치본을 가리지 않게 치운다.
+    OLD="$HOME/.local/bin/nfd2nfc"
+    if [ -f "$OLD" ] && grep -q "$MARK" "$OLD" 2>/dev/null; then rm -f "$OLD" && echo "  ✓ 예전 설치본 정리: $OLD"; fi
+else
+    SRC="$HERE/nfd2nfc"
+    if [ ! -f "$SRC" ] || ! grep -q "$MARK" "$SRC" 2>/dev/null; then
+        # 저장소 밖(curl | sh)에서 실행됨 → 최신 릴리스의 스크립트를 받는다.
+        TAG=$(curl -fsS -m 10 "https://api.github.com/repos/$REPO/releases/latest" \
+              | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1)
+        [ -n "$TAG" ] || { echo "오류: 최신 버전을 확인할 수 없습니다(네트워크 확인)" >&2; exit 1; }
+        SRC=$(mktemp)
+        trap 'rm -f "$SRC"' EXIT
+        curl -fsSL -m 30 -o "$SRC" "https://raw.githubusercontent.com/$REPO/$TAG/nfd2nfc"
+        grep -q "$MARK" "$SRC" || { echo "오류: 받은 파일이 nfd2nfc가 아닙니다" >&2; exit 1; }
+    fi
+    # Homebrew 경로에는 쓰지 않는다(brew와 충돌). 사용자 영역에 두고 PATH는 setup이 안내한다.
+    BIN="$HOME/.local/bin"
+    mkdir -p "$BIN"
+    install -m 0755 "$SRC" "$BIN/nfd2nfc"
+    CLI="$BIN/nfd2nfc"
+    echo "  ✓ CLI 설치: $CLI"
 fi
-[ -z "$BIN_DIR" ] && BIN_DIR="$HOME/.local/bin"
-mkdir -p "$BIN_DIR"
-install -m 0755 "$SCRIPT_SRC" "$BIN_DIR/nfd2nfc"
-echo "  ✓ CLI 설치: $BIN_DIR/nfd2nfc"
 
-# PATH 안내
-case ":$PATH:" in
-    *":$BIN_DIR:"*) ;;  # 이미 PATH에 있음 → 새 터미널에서 바로 실행 가능
-    *)
-        echo
-        echo "  ⚠ $BIN_DIR 가 PATH에 없어, 'nfd2nfc' 명령이 바로 안 잡힙니다."
-        echo "    • 지금 이 터미널에서 바로 쓰려면:"
-        echo "        export PATH=\"$BIN_DIR:\$PATH\""
-        echo "    • 새 터미널에도 적용하려면 위 줄을 ~/.zshrc(쓰는 셸의 rc)에 추가."
-        echo "    • Finder 우클릭 '빠른 동작'만 쓸 거면 이 경고는 무시해도 됩니다."
-        ;;
-esac
-
-cat <<DONE
-
-✅ 설치 완료!
-
-사용법:
-  • Finder에서 파일·폴더 우클릭 → "빠른 동작(Quick Actions)" 하위 메뉴
-    → "NFC로 이름 정리".  (Finder를 방금 새로고침했으니 바로 보입니다.)
-  • 터미널:  nfd2nfc ~/Downloads/내폴더
-             nfd2nfc --dry-run ~/Desktop/*.hwp   (미리보기)
-
-메뉴가 그래도 안 보이면:
-  1) 우클릭 메뉴 맨 아래 "빠른 동작 ▸" 하위에 있는지 확인하세요.
-  2) 시스템 설정 → 키보드 → 키보드 단축키 → 서비스 →
-     "파일 및 폴더" 항목에서 "NFC로 이름 정리"가 체크돼 있는지 확인.
-  3) 그래도 없으면 로그아웃 후 다시 로그인하면 확실히 등록됩니다.
-
-제거하려면:  ./uninstall.sh
-DONE
+echo
+"$CLI" setup

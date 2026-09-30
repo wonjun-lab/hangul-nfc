@@ -6,6 +6,30 @@
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-01
+
+설치·사용·업데이트·제거 전 과정을 사용자 관점에서 다시 설계했다.
+
+### Added
+- **`nfd2nfc setup`** — Finder 우클릭 메뉴를 어떤 설치 경로(Homebrew·install.sh·수동)에서든 한 명령으로 설치. brew 사용자도 zip을 따로 받을 필요가 없다.
+- **`nfd2nfc doctor`** — CLI 위치·설치 방식·PATH·메뉴 방식·자동 감시(폴더별 상태, 최근 실행)·새 버전을 점검하고 문제마다 해결 명령을 안내(문제 있으면 종료 코드 1).
+- **`nfd2nfc update`** — Homebrew 설치본은 `brew upgrade`로 위임하고, 직접 설치본은 릴리스의 스크립트를 받아 **문법·버전을 검증한 뒤에만** 교체(끊긴 다운로드·오류 페이지로 망가지지 않음). git 사본은 `git pull` 안내.
+- **`nfd2nfc uninstall`** — 메뉴·자동 감시(LaunchAgent)·설정·로그와 CLI(직접 설치본 삭제, Homebrew 설치본은 `brew uninstall`)까지 한 번에. 표준 위치 밖의 사본(저장소 등)과 남의 파일은 건드리지 않는다. `--keep-cli` 지원.
+- `install.sh` 한 줄 설치: `curl -fsSL …/install.sh | sh` (저장소 없이도 최신 릴리스를 받아 설치).
+
+### Changed
+- **Finder 메뉴가 설치된 CLI를 호출** — 예전엔 스크립트 사본을 메뉴에 박아 두어 `brew upgrade` 후에도 메뉴는 옛 버전으로 돌았다. 이제 CLI만 업데이트하면 메뉴도 최신이다(CLI가 없을 때만 내장 사본 사용). 생성기는 CLI 안(`nfd2nfc quick-action build`)으로 옮겨 `setup`과 배포 zip이 같은 코드를 쓴다.
+- **`install.sh`는 Homebrew 우선** — brew가 있으면 brew로 설치(업데이트·제거가 한 경로), 없으면 `~/.local/bin`. **Homebrew 경로(`/opt/homebrew/bin` 등)엔 더 이상 파일을 쓰지 않는다**(이후 `brew install`의 링크 충돌 원인). 1.1.x가 그곳에 둔 사본은 자동 정리. `--from-source`로 저장소 사본 설치(개발용).
+- `uninstall.sh`는 `nfd2nfc uninstall`의 얇은 진입점 — Apple Silicon에서 `/opt/homebrew/bin`의 CLI가 남던 문제와 자동 감시 에이전트가 남던 문제 해소.
+- 도움말(`-h`)과 영문 README가 모든 하위 명령을 안내.
+- Homebrew formula: `caveats`가 `setup`/`doctor`/`uninstall`을 안내, `test`가 실제 NFD→NFC 변환을 디스크 바이트로 검증.
+
+### Fixed
+- **자동 감시가 다운로드·데스크탑·문서 등에서 조용히 실패하던 문제** — macOS 개인정보 보호(TCC)가 백그라운드 프로그램의 접근을 막아(`Operation not permitted`, launchd 에이전트로 실측) README의 대표 예시(`watch add ~/Downloads`)가 등록 직후 1회만 동작하고 이후 아무 일도 하지 않았다. 서명 안 된 도구는 권한 창도 띄울 수 없음을 확인(osacompile·JXA 앱 번들, launchd·open, 목적 문자열, 위치 조합 모두 권한 창 없이 무기한 대기 — macOS 26.6). 그래서:
+  - 보호 위치(다운로드·데스크탑·문서·iCloud Drive·클라우드 저장소·외장/네트워크 볼륨)와 그 상위 폴더(홈 등)는 `watch add`에서 거부하고 대안(Finder 메뉴·CLI)을 안내.
+  - 예전 버전에서 등록된 보호 폴더, 실행 중 권한이 막힌 폴더는 감시에서 자동 해제하고 알림(조용한 실패 제거).
+- `watch list`가 launchctl 내부 출력을 흘리고, 첫 `watch add`가 `Unload failed` 오류를 출력하던 문제 — `bootstrap`/`bootout`/`print`로 바꾸고 출력을 숨김.
+
 ## [1.1.1] - 2026-10-01
 
 ### Fixed (SMB·NAS 실측 후속 — Synology DSM 7.4)
@@ -72,6 +96,7 @@
 - `install.sh` BIN_DIR 선택의 도달 불가능한 `elif` 죽은 코드 정리.
 - README 영문 사용법 한 줄에 누락됐던 `--reveal`/`-h` 추가.
 
+[1.2.0]: https://github.com/wonjun-lab/nfd2nfc/releases/tag/v1.2.0
 [1.1.1]: https://github.com/wonjun-lab/nfd2nfc/releases/tag/v1.1.1
 [1.1.0]: https://github.com/wonjun-lab/nfd2nfc/releases/tag/v1.1.0
 

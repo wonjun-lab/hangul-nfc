@@ -11,14 +11,21 @@ class Nfd2nfc < Formula
 
   def caveats
     <<~EOS
-      CLI(`nfd2nfc`)만 설치됩니다.
-      Finder 우클릭 메뉴(빠른 동작 "NFC로 이름 정리")가 필요하면
-      Releases에서 nfd2nfc-quick-action.zip을 받아 설치하세요:
-        https://github.com/wonjun-lab/nfd2nfc/releases/latest
+      Finder 우클릭 메뉴(빠른 동작 "NFC로 이름 정리")는 한 번만 실행해 설치하세요:
+        nfd2nfc setup
+      메뉴는 설치된 CLI를 호출하므로 brew upgrade 하면 함께 최신이 됩니다.
+
+      상태 점검: nfd2nfc doctor
+      완전 제거: nfd2nfc uninstall  (메뉴·자동 감시·설정까지 지운 뒤 brew uninstall)
     EOS
   end
 
   test do
-    assert_match "nfd2nfc", shell_output("#{bin}/nfd2nfc --version")
+    assert_equal "nfd2nfc #{version}\n", shell_output("#{bin}/nfd2nfc --version")
+    # 자모가 분리된(NFD) 이름이 조합형(NFC)으로 바뀌는지 — 디스크의 실제 바이트로 확인
+    (testpath/"t").mkpath
+    touch testpath/"t"/"\u1107\u1169\u1100\u1169.txt"
+    system bin/"nfd2nfc", "-q", testpath/"t"
+    assert_equal ["\uBCF4\uACE0.txt"], Dir.children(testpath/"t")
   end
 end
