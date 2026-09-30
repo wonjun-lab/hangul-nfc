@@ -121,18 +121,19 @@ sub disk_real_path {
     return $path unless defined $u;        # 비-UTF8 인자는 그대로 둔다
     my $want = NFC($u);
     opendir(my $dh, $dir) or return $path;
+    my $match;
     while (defined(my $e = readdir $dh)) {
         next if $e eq '.' || $e eq '..';
+        if ($e eq $base) { $match = $e; last }   # 바이트 일치가 최우선(정규화-구분 볼륨에서 다른 항목 오선택 방지)
+        next if defined $match;
         my $eu = eval { my $c = $e; decode_utf8($c, Encode::FB_CROAK) };
         next unless defined $eu;
-        if (NFC($eu) eq $want) {           # 정규화-비구분 매칭 = 같은 디스크 항목
-            closedir $dh;
-            my $prefix = $i < 0 ? '' : substr($path, 0, $i + 1);
-            return $prefix . $e;           # 디스크에 저장된 실제 바이트(NFD일 수도, NFC일 수도)
-        }
+        $match = $e if NFC($eu) eq $want;  # 정규화-비구분 매칭 = 같은 디스크 항목
     }
     closedir $dh;
-    return $path;                          # 매칭 없음(존재 안 함 등) → 원본
+    return $path unless defined $match;    # 매칭 없음(존재 안 함 등) → 원본
+    my $prefix = $i < 0 ? '' : substr($path, 0, $i + 1);
+    return $prefix . $match;               # 디스크에 저장된 실제 바이트(NFD일 수도, NFC일 수도)
 }
 
 sub collect {
@@ -192,6 +193,8 @@ sub fstype_of_dev {
             while (my $l = <$mh>) {
                 # 예) /dev/disk5s1 on /Volumes/USB 드라이브 (exfat, local, nodev, nosuid)
                 next unless $l =~ /^.*? on (.*) \(([^,()]+)[,)]/;
+                # 관심 형식만 stat한다 — 연결이 끊긴 SMB·NFS 마운트를 stat하면 오래 멈출 수 있다.
+                next unless nfd_forcing_fstype($2);
                 my @st = stat($1);
                 $FSTYPE_BY_DEV{$st[0]} //= $2 if @st;
             }
@@ -204,7 +207,11 @@ sub fstype_of_dev {
 sub mark_nfd_forced {
     my ($dev, $path, $why) = @_;
     $NFD_FORCED{$dev} = 1;
-    warn "경고: 이 볼륨($why)은 파일명을 NFD로 강제 저장해 NFC로 바꿀 수 없습니다 — 같은 볼륨 항목은 건너뜀: $path\n";
+    # exFAT·FAT은 디스크엔 조합형(UTF-16)으로 저장하고 macOS가 읽을 때만 NFD로 보여 준다(실측).
+    my $note = $why =~ /^(?:exfat|msdos)$/
+        ? '디스크엔 이미 조합형으로 저장돼 윈도우에서 직접 열면 정상이지만, 이 Mac에선 항상 NFD로 보여 바꿀 수 없습니다'
+        : '파일명을 NFD로 강제 저장해 바꿀 수 없습니다';
+    warn "경고: 이 볼륨($why)은 $note — 같은 볼륨 항목은 건너뜀(업로드하려면 APFS로 복사 후 정리): $path\n";
 }
 
 # rename 전: 형식만으로 NFD 강제가 확실한 볼륨이면 1
@@ -476,41 +483,56 @@ sub watch_log {
         $t[5] + 1900, $t[4] + 1, $t[3], $t[2], $t[1], $t[0], $msg;
     close $fh;
 }
+# 폴더 하나를 코어로 정리하고 요약 줄을 돌려준다.
+# 리스트폼 파이프 → 셸 미경유(경로 특수문자 안전). 코어를 일반 모드로 호출해 요약 캡처.
+sub watch_clean_dir {
+    my ($d) = @_;
+    open(my $ph, '-|', watch_self(), '--', $d) or return '';
+    local $/;
+    my $out = <$ph>;
+    close $ph;
+    return $out // '';
+}
+sub watch_changed_count { return $_[0] =~ /완료:\s*(\d+)개 변경/ ? $1 : 0 }
 sub watch_run {
-    my $self = watch_self();
     my @dirs = grep { -d $_ } watch_read_list();
     my $total = 0;
-    for my $d (@dirs) {
-        # 리스트폼 파이프 → 셸 미경유(경로 특수문자 안전). 코어를 일반 모드로 호출해 요약 캡처.
-        my @cmd = ($self, '--', $d);
-        if (open(my $ph, '-|', @cmd)) {
-            local $/;
-            my $out = <$ph>;
-            close $ph;
-            if (defined $out && $out =~ /완료:\s*(\d+)개 변경/) { $total += $1; }
-        }
-    }
-    watch_log("run: ${total}개 변경 (" . scalar(@dirs) . "개 폴더)");
+    $total += watch_changed_count(watch_clean_dir($_)) for @dirs;
+    watch_report("run", $total, scalar @dirs);
+    return 0;
+}
+# 로그를 남기고, 바뀐 게 있을 때만 알린다.
+sub watch_report {
+    my ($what, $total, $ndirs) = @_;
+    watch_log("$what: ${total}개 변경 (${ndirs}개 폴더)");
     if ($total > 0 && !$ENV{NFD2NFC_NO_GUI}) {
         my $msg = "${total}개 파일 이름을 NFC로 자동 정리했습니다";
         system('/usr/bin/osascript', '-e',
                qq{display notification "$msg" with title "nfd2nfc 자동 감시"});
     }
-    return 0;
 }
 
 # ── 사용자 명령 ──
 sub watch_add {
     my @new;
+    my $total = 0;
     for my $arg (@_) {
         my $abs = watch_abs($arg);
         if (!defined $abs || !-d $abs) { warn "폴더가 아니거나 없음: $arg\n"; next; }
         # NFD 강제 볼륨(HFS+·exFAT·FAT)은 정리가 불가능해 등록해 봐야 헛 실행만 반복된다.
         my $fs = fstype_of_dev((stat $abs)[0]);
         if (nfd_forcing_fstype($fs)) {
-            warn "등록 불가: $arg — 이 볼륨($fs)은 파일명을 NFD로 강제 저장해 정리할 수 없습니다\n";
+            warn "등록 불가: $arg — 이 볼륨($fs)의 파일명은 macOS에서 항상 NFD라 정리할 수 없습니다\n";
             next;
         }
+        # 등록 전에 1회 정리. 형식 목록에 없는 NFD 강제 볼륨(SMB 등)도 여기서 '변경 불가'로
+        # 드러난다 — 등록하면 매 실행의 헛 rename이 WatchPaths를 다시 깨워 10초마다 재실행된다.
+        my $out = watch_clean_dir($abs);
+        if ($out =~ /변경 불가/) {
+            warn "등록 불가: $arg — 이 볼륨은 파일명을 NFD로 강제해 정리할 수 없습니다\n";
+            next;
+        }
+        $total += watch_changed_count($out);
         push @new, $abs;
     }
     return 1 unless @new;
@@ -518,7 +540,7 @@ sub watch_add {
     watch_write_list(@dirs);
     watch_write_plist();
     watch_load();
-    watch_run();
+    watch_report("add", $total, scalar @new);
     print "감시 등록: ", join(", ", @new), "\n";
     return 0;
 }
