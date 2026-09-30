@@ -27,15 +27,20 @@
 # 환경변수:
 #   NFD2NFC_NO_GUI=1  --notify/--reveal의 osascript 호출을 건너뜀(테스트·CI용)
 # 종료 코드:
-#   0 정상, 1 인자 오류 또는 변환 실패/충돌 스킵/존재하지 않는 입력이 있을 때
+#   0 정상, 1 인자 오류 또는 변환 실패/충돌 스킵/존재하지 않는 입력/NFD 강제 볼륨 항목이 있을 때
 
 use strict;
 use warnings;
-use Unicode::Normalize qw(NFC);
+use Unicode::Normalize qw(NFC compose reorder);
 use Encode qw(decode_utf8 encode_utf8);
 use Getopt::Long qw(GetOptions);
 
 our $VERSION = "1.0.1";
+
+# 분리된 자모 등 결합 가능한 문자열만 합친다(= NFC에서 '분해' 단계를 뺀 것).
+# NFC는 호환 한자(U+F900~, 예: 樂 U+F914)나 Ω(U+2126) 같은 singleton까지 다른 코드포인트로
+# 바꿔 '보이는 글자'를 바꾼다. macOS도 이들은 분해하지 않으므로 그대로 둬야 한다.
+sub compose_name { return compose(reorder($_[0])) }
 
 # 첫 인자가 'watch'면 자동 감시 서브커맨드로 분기(옵션 파싱 전에 가로챈다).
 if (@ARGV && $ARGV[0] eq 'watch') {
@@ -171,8 +176,63 @@ collect($_, 1) for @ARGV;
 # 2) 깊은 경로부터 처리(자식 → 부모) 해야 폴더 이름을 바꿔도 경로가 안 깨짐
 my @sorted = sort { ($b =~ tr{/}{}) <=> ($a =~ tr{/}{}) } @targets;
 
+# 파일명을 NFD로 강제 저장하는 볼륨(HFS+·exFAT·FAT)에선 NFC로 rename해도 NFD로 되돌아간다.
+# 이 헛 rename은 '변경'으로 거짓 집계되고, 디렉토리 변경 이벤트를 일으켜 watch(launchd
+# WatchPaths)를 무한 재실행시킨다. 그래서 그런 볼륨의 항목은 rename을 시도하지 않는다.
+our %FSTYPE_BY_DEV;                    # st_dev → 파일시스템 형식(mount 테이블 1회 조회)
+our %NFD_FORCED;                       # st_dev → 1(NFD 강제)/0(정상 확인). 볼륨당 1회 판정·경고
+
+sub nfd_forcing_fstype { return (shift // '') =~ /^(?:hfs|exfat|msdos)$/ }
+
+sub fstype_of_dev {
+    my ($dev) = @_;
+    if (!%FSTYPE_BY_DEV) {
+        $FSTYPE_BY_DEV{''} = '';           # 조회 완료 표시(실패해도 재조회 안 함)
+        if (open(my $mh, '-|', '/sbin/mount')) {
+            while (my $l = <$mh>) {
+                # 예) /dev/disk5s1 on /Volumes/USB 드라이브 (exfat, local, nodev, nosuid)
+                next unless $l =~ /^.*? on (.*) \(([^,()]+)[,)]/;
+                my @st = stat($1);
+                $FSTYPE_BY_DEV{$st[0]} //= $2 if @st;
+            }
+            close $mh;
+        }
+    }
+    return $FSTYPE_BY_DEV{$dev} // '';
+}
+
+sub mark_nfd_forced {
+    my ($dev, $path, $why) = @_;
+    $NFD_FORCED{$dev} = 1;
+    warn "경고: 이 볼륨($why)은 파일명을 NFD로 강제 저장해 NFC로 바꿀 수 없습니다 — 같은 볼륨 항목은 건너뜀: $path\n";
+}
+
+# rename 전: 형식만으로 NFD 강제가 확실한 볼륨이면 1
+sub nfd_forced {
+    my ($dev, $path) = @_;
+    return $NFD_FORCED{$dev} if defined $NFD_FORCED{$dev};
+    my $t = fstype_of_dev($dev);
+    return 0 unless nfd_forcing_fstype($t);   # 모르는 형식은 rename 후 stored_as_given이 판정
+    mark_nfd_forced($dev, $path, $t);
+    return 1;
+}
+
+# rename 후: 새 이름이 그 바이트 그대로 저장됐는지 부모 readdir로 확인(볼륨당 첫 rename 1회).
+# 형식 목록에 없는 볼륨(SMB·NFS 등)이 NFD를 강제해도 거짓 '변경' 집계를 막는 안전망.
+sub stored_as_given {
+    my ($dev, $dir, $newbase, $path) = @_;
+    return 1 if defined $NFD_FORCED{$dev};
+    opendir(my $dh, $dir eq '' ? '.' : $dir) or return 1;   # 확인 불가 → 변경으로 집계
+    my $found = 0;
+    while (defined(my $e = readdir $dh)) { if ($e eq $newbase) { $found = 1; last } }
+    closedir $dh;
+    if ($found) { $NFD_FORCED{$dev} = 0; return 1 }
+    mark_nfd_forced($dev, $path, fstype_of_dev($dev) || '알 수 없는 형식');
+    return 0;
+}
+
 # 3) 변환
-my ($changed, $skipped) = (0, 0);
+my ($changed, $skipped, $unsupported) = (0, 0, 0);
 for my $p (@sorted) {
     my $i    = rindex($p, '/');
     my $dir  = $i < 0 ? '' : substr($p, 0, $i + 1);
@@ -183,17 +243,18 @@ for my $p (@sorted) {
     my $u = eval { my $copy = $base; decode_utf8($copy, Encode::FB_CROAK) };
     next unless defined $u;
 
-    my $newbase = encode_utf8(NFC($u));
-    next if $newbase eq $base;             # 이미 NFC → 변경 불필요
+    my $newbase = encode_utf8(compose_name($u));
+    next if $newbase eq $base;             # 이미 결합형 → 변경 불필요
 
     my $new = $dir . $newbase;
+    my @cur = lstat($p);
+    if (@cur && nfd_forced($cur[0], $p)) { $unsupported++; next; }
 
     # macOS 파일시스템(APFS·HFS+)은 정규화 비구분(normalization-insensitive)이라
     # NFD로 저장된 파일도 NFC 이름으로 -e/lstat 검사하면 "존재"로 잡힌다.
     # 즉 단순 -e 검사는 자기 자신을 충돌로 오인해 전부 건너뛴다.
     # 따라서 '진짜 다른 파일'(다른 inode)이 그 이름을 차지한 경우에만 충돌로 본다.
     # (이 충돌은 정규화-구분 FS에서만 발생 — APFS/HFS+에선 NFD/NFC가 같은 inode라 안 생긴다.)
-    my @cur = lstat($p);
     my @tgt = lstat($new);
     my $collision = @tgt && (!@cur || $tgt[0] != $cur[0] || $tgt[1] != $cur[1]);
     if ($collision && !$force) {
@@ -210,6 +271,7 @@ for my $p (@sorted) {
         print "[미리보기] $p  →  $new\n" unless $quiet;
         $changed++;
     } elsif (rename($p, $new)) {
+        if (@cur && !stored_as_given($cur[0], $dir, $newbase, $p)) { $unsupported++; next; }
         print "변경: $p  →  $new\n" if $verbose;
         $changed++;
     } else {
@@ -223,6 +285,7 @@ my $summary = $dry
     ? "미리보기: ${changed}개 변경 예정"
     : "완료: ${changed}개 변경"
         . ($skipped ? ", ${skipped}개 건너뜀" : "");
+$summary .= ", ${unsupported}개 변경 불가(볼륨이 NFD 강제)" if $unsupported;
 print "$summary\n" unless $quiet;
 
 # NFD2NFC_NO_GUI=1이면 osascript(알림·Finder) 호출을 건너뛴다.
@@ -248,7 +311,7 @@ if ($reveal && !$dry && !$no_gui) {
         my $dir  = $i < 0 ? '' : substr($a, 0, $i + 1);
         my $base = $i < 0 ? $a : substr($a, $i + 1);
         my $u = eval { my $c = $base; decode_utf8($c, Encode::FB_CROAK) };
-        my $fb = defined $u ? encode_utf8(NFC($u)) : $base;
+        my $fb = defined $u ? encode_utf8(compose_name($u)) : $base;
         my $fp = $dir . $fb;
         $fp = $a unless -e $fp;        # 이름이 안 바뀌었으면 원본
         my $abs = eval { require Cwd; Cwd::abs_path($fp) };
@@ -257,10 +320,10 @@ if ($reveal && !$dry && !$no_gui) {
     reveal_in_finder(@final) if @final;
 }
 
-# 변환 실패·충돌 스킵·존재하지 않는 입력이 하나라도 있으면 비0으로 종료한다.
+# 변환 실패·충돌 스킵·존재하지 않는 입력·NFD 강제 볼륨 항목이 하나라도 있으면 비0으로 종료한다.
 # Quick Action은 exit code를 무시(build-workflow.sh가 exit 0으로 감쌈)하므로 GUI엔 영향 없고,
 # CLI/CI 호출 측은 $?로 부분 실패를 감지할 수 있다.
-exit(($skipped || $missing) ? 1 : 0);
+exit(($skipped || $missing || $unsupported) ? 1 : 0);
 
 # 주어진 절대경로들을 Finder에서 보여준다(폴더 1개면 열기, 그 외엔 선택).
 sub reveal_in_finder {
@@ -289,6 +352,9 @@ sub watch_support_dir { "$ENV{HOME}/Library/Application Support/nfd2nfc" }
 sub watch_list_file   { watch_support_dir() . "/folders.list" }
 sub watch_plist_file  { "$ENV{HOME}/Library/LaunchAgents/" . watch_label() . ".plist" }
 sub watch_log_file    { "$ENV{HOME}/Library/Logs/nfd2nfc-watch.log" }
+# launchd가 실행할 자기 경로. Cwd::abs_path는 심링크를 풀어 Homebrew의 Cellar/<버전>/ 경로를
+# 박으므로(brew upgrade·cleanup 후 감시가 조용히 멈춤) 심링크를 유지한 절대경로만 만든다.
+sub watch_self        { require File::Spec; File::Spec->rel2abs($0) }
 
 sub watch_usage {
     print <<'TXT';
@@ -342,9 +408,11 @@ sub watch_abs {
 sub xml_esc { my $s = shift; $s =~ s/&/&amp;/g; $s =~ s/</&lt;/g; $s =~ s/>/&gt;/g; return $s; }
 sub watch_write_plist {
     my @dirs = watch_read_list();
-    my $self = Cwd::abs_path($0) // $0;
+    my $self = watch_self();
     my $log  = watch_log_file();
     my $paths = join "\n", map { "\t\t<string>" . xml_esc($_) . "</string>" } @dirs;
+    # WatchPaths는 등록 폴더 '자신'의 항목 변경만 감지한다(하위 폴더 안에 생긴 파일은 못 잡음).
+    # 그래서 StartInterval로 1시간마다 전체를 한 번 더 훑어 하위 폴더 유입분을 보완한다.
     my $body = <<"PLIST";
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -364,6 +432,8 @@ $paths
 \t</array>
 \t<key>ThrottleInterval</key>
 \t<integer>10</integer>
+\t<key>StartInterval</key>
+\t<integer>3600</integer>
 \t<key>StandardOutPath</key>
 \t<string>@{[ xml_esc($log) ]}</string>
 \t<key>StandardErrorPath</key>
@@ -407,7 +477,7 @@ sub watch_log {
     close $fh;
 }
 sub watch_run {
-    my $self = Cwd::abs_path($0) // $0;
+    my $self = watch_self();
     my @dirs = grep { -d $_ } watch_read_list();
     my $total = 0;
     for my $d (@dirs) {
@@ -435,6 +505,12 @@ sub watch_add {
     for my $arg (@_) {
         my $abs = watch_abs($arg);
         if (!defined $abs || !-d $abs) { warn "폴더가 아니거나 없음: $arg\n"; next; }
+        # NFD 강제 볼륨(HFS+·exFAT·FAT)은 정리가 불가능해 등록해 봐야 헛 실행만 반복된다.
+        my $fs = fstype_of_dev((stat $abs)[0]);
+        if (nfd_forcing_fstype($fs)) {
+            warn "등록 불가: $arg — 이 볼륨($fs)은 파일명을 NFD로 강제 저장해 정리할 수 없습니다\n";
+            next;
+        }
         push @new, $abs;
     }
     return 1 unless @new;
