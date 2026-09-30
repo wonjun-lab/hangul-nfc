@@ -1,8 +1,8 @@
 class Nfd2nfc < Formula
   desc "Fix macOS NFD Korean filenames by normalizing to NFC"
   homepage "https://github.com/wonjun-lab/nfd2nfc"
-  url "https://github.com/wonjun-lab/nfd2nfc/archive/refs/tags/v1.1.1.tar.gz"
-  sha256 "0ccb71e48cb4f560c3cb8bdab501491b7c38b0aaefaa7a38b8b914e6d4da05f0"
+  url "https://github.com/wonjun-lab/nfd2nfc/archive/refs/tags/v1.2.0.tar.gz"
+  sha256 "a291ac4cb68f2dca532cd57a753ee99a124b7a4a856a3ab411b1d52859c02753"
   license "MIT"
 
   def install
