@@ -1,8 +1,8 @@
 class HangulNfc < Formula
   desc "Fix macOS NFD Korean filenames by normalizing to NFC"
   homepage "https://github.com/wonjun-lab/hangul-nfc"
-  url "https://github.com/wonjun-lab/hangul-nfc/archive/refs/tags/v1.2.0.tar.gz"
-  sha256 "a291ac4cb68f2dca532cd57a753ee99a124b7a4a856a3ab411b1d52859c02753"
+  url "https://github.com/wonjun-lab/hangul-nfc/archive/refs/tags/v2.0.0.tar.gz"
+  sha256 "e40e68104360a5bf2a7bba2a626a53f6aea08807539e8cf0265fc3d3b3b0c3a8"
   license "MIT"
 
   def install
