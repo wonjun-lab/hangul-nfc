@@ -1,8 +1,8 @@
 #!/bin/sh
 #
-# build-workflow.sh — `nfd2nfc` 스크립트로부터 Finder Quick Action(.workflow)을 생성한다.
+# build-workflow.sh — `hangul-nfc` 스크립트로부터 Finder Quick Action(.workflow)을 생성한다.
 #
-# 배포 zip용 Quick Action은 설치된 CLI가 있으면 그것을 호출하고, 없으면 내장한 `nfd2nfc` 사본으로 실행한다.
+# 배포 zip용 Quick Action은 설치된 CLI가 있으면 그것을 호출하고, 없으면 내장한 `hangul-nfc` 사본으로 실행한다.
 # 즉 스크립트가 유일한 원본(single source of truth)이며, 이 빌더가 항상 동기화한다.
 #
 # 사용법:
@@ -12,12 +12,12 @@
 set -eu
 
 HERE=$(cd "$(dirname "$0")" && pwd)
-SCRIPT_SRC="$HERE/nfd2nfc"
+SCRIPT_SRC="$HERE/hangul-nfc"
 WORKFLOW_NAME="NFC로 이름 정리"
 
 # build_workflow_bundle <bundle_path>
-# 주어진 경로에 완전한 .workflow 번들을 만든다. 생성기는 CLI(`nfd2nfc quick-action build`) 안에 있어
-# `nfd2nfc setup`(설치된 CLI를 호출하는 메뉴)과 배포 zip(독립 실행본)이 같은 코드를 쓴다.
+# 주어진 경로에 완전한 .workflow 번들을 만든다. 생성기는 CLI(`hangul-nfc quick-action build`) 안에 있어
+# `hangul-nfc setup`(설치된 CLI를 호출하는 메뉴)과 배포 zip(독립 실행본)이 같은 코드를 쓴다.
 build_workflow_bundle() {
     /usr/bin/perl "$SCRIPT_SRC" quick-action build "$1"
 }

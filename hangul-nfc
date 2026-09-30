@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 #
-# nfd2nfc — macOS 한글 파일명 자소분리(NFD) → 정상(NFC) 변환기
+# hangul-nfc — macOS 한글 파일명 자소분리(NFD) → 정상(NFC) 변환기
 #
 # macOS는 파일명을 NFD(분해형)로 저장합니다. 그래서 한글 파일명이
 # 윈도우나 일부 웹 업로드에서 'ㅇㅏㄴㄴㅕㅇ'처럼 자소분리되어 보입니다.
@@ -10,7 +10,7 @@
 # 의존성 없음: macOS 기본 perl 만으로 동작합니다.
 #
 # 사용법:
-#   nfd2nfc [옵션] <파일/폴더 ...>
+#   hangul-nfc [옵션] <파일/폴더 ...>
 # 옵션:
 #   -n, --dry-run     실제로 바꾸지 않고 바뀔 내용만 미리보기
 #       --no-recurse  폴더 안쪽까지 들어가지 않고 지정한 항목만 처리
@@ -25,7 +25,7 @@
 # (단문자 옵션은 묶어서 쓸 수 있음: 예) -nv == -n -v)
 #
 # 환경변수:
-#   NFD2NFC_NO_GUI=1  --notify/--reveal의 osascript 호출을 건너뜀(테스트·CI용)
+#   HANGUL_NFC_NO_GUI=1  --notify/--reveal의 osascript 호출을 건너뜀(테스트·CI용)
 # 종료 코드:
 #   0 정상, 1 인자 오류 또는 변환 실패/충돌 스킵/존재하지 않는 입력/NFD 강제 볼륨 항목이 있을 때
 
@@ -35,7 +35,7 @@ use Unicode::Normalize qw(NFC compose reorder);
 use Encode qw(decode_utf8 encode_utf8);
 use Getopt::Long qw(GetOptions);
 
-our $VERSION = "1.2.0";
+our $VERSION = "2.0.0";
 
 # 분리된 자모 등 결합 가능한 문자열만 합친다(= NFC에서 '분해' 단계를 뺀 것).
 # NFC는 호환 한자(U+F900~, 예: 樂 U+F914)나 Ω(U+2126) 같은 singleton까지 다른 코드포인트로
@@ -71,7 +71,7 @@ GetOptions(
     'help|h'     => \$help,
 ) or usage(1);
 
-if ($version) { print "nfd2nfc $VERSION\n"; exit 0; }
+if ($version) { print "hangul-nfc $VERSION\n"; exit 0; }
 usage(0) if $help;
 usage(1) unless @ARGV;
 
@@ -85,15 +85,15 @@ my @inputs = @ARGV;
 sub usage {
     my $code = shift // 0;
     print <<'TXT';
-nfd2nfc — macOS 한글 파일명 자소분리(NFD) → 정상(NFC) 정리
+hangul-nfc — macOS 한글 파일명 자소분리(NFD) → 정상(NFC) 정리
 
 사용법:
-  nfd2nfc [옵션] <파일/폴더 ...>   이름 정리 (폴더는 하위까지)
-  nfd2nfc setup                  Finder 우클릭 메뉴 설치 (처음 한 번)
-  nfd2nfc doctor                 설치·메뉴·자동 감시·업데이트 상태 진단
-  nfd2nfc update                 최신 버전으로 업데이트
-  nfd2nfc uninstall              메뉴·자동 감시·설정·CLI 모두 제거
-  nfd2nfc watch <add|remove|list|on|off>   폴더 자동 정리
+  hangul-nfc [옵션] <파일/폴더 ...>   이름 정리 (폴더는 하위까지)
+  hangul-nfc setup                  Finder 우클릭 메뉴 설치 (처음 한 번)
+  hangul-nfc doctor                 설치·메뉴·자동 감시·업데이트 상태 진단
+  hangul-nfc update                 최신 버전으로 업데이트
+  hangul-nfc uninstall              메뉴·자동 감시·설정·CLI 모두 제거
+  hangul-nfc watch <add|remove|list|on|off>   폴더 자동 정리
 
 옵션:
   -n, --dry-run     미리보기 (실제로 바꾸지 않음)
@@ -107,8 +107,8 @@ nfd2nfc — macOS 한글 파일명 자소분리(NFD) → 정상(NFC) 정리
   -V, --version     버전 출력
   -h, --help        이 도움말
 
-  팁: '-'로 시작하는 파일명은 -- 뒤에 두세요  (예: nfd2nfc -- -파일.txt)
-      'setup'·'watch' 같은 이름의 파일은 경로로 주세요  (예: nfd2nfc ./setup)
+  팁: '-'로 시작하는 파일명은 -- 뒤에 두세요  (예: hangul-nfc -- -파일.txt)
+      'setup'·'watch' 같은 이름의 파일은 경로로 주세요  (예: hangul-nfc ./setup)
 TXT
     exit $code;
 }
@@ -324,9 +324,9 @@ my $summary = $dry
 $summary .= ", ${unsupported}개 변경 불가(볼륨이 NFD 강제)" if $unsupported;
 print "$summary\n" unless $quiet;
 
-# NFD2NFC_NO_GUI=1이면 osascript(알림·Finder) 호출을 건너뛴다.
+# HANGUL_NFC_NO_GUI=1이면 osascript(알림·Finder) 호출을 건너뛴다.
 # 테스트·CI(헤드리스)에서 Finder/알림 부작용·AppleEvent 타임아웃을 피하기 위함.
-my $no_gui = $ENV{NFD2NFC_NO_GUI};
+my $no_gui = $ENV{HANGUL_NFC_NO_GUI};
 if ($notify && !$dry && !$no_gui) {
     my $msg = $summary;
     $msg =~ s/"/\\"/g;
@@ -383,24 +383,24 @@ use Cwd ();
 
 # 상단 디스패치(exit watch_main)가 런타임에 먼저 실행되므로, 파일 끝 my 변수는
 # 그 시점에 미초기화다. 따라서 상수는 my가 아니라 sub로 둔다(런타임 순서 무관).
-sub watch_label       { 'com.wonjun-lab.nfd2nfc.watch' }
-sub watch_support_dir { "$ENV{HOME}/Library/Application Support/nfd2nfc" }
+sub watch_label       { 'com.wonjun-lab.hangul-nfc.watch' }
+sub watch_support_dir { "$ENV{HOME}/Library/Application Support/hangul-nfc" }
 sub watch_list_file   { watch_support_dir() . "/folders.list" }
 sub watch_plist_file  { "$ENV{HOME}/Library/LaunchAgents/" . watch_label() . ".plist" }
-sub watch_log_file    { "$ENV{HOME}/Library/Logs/nfd2nfc-watch.log" }
+sub watch_log_file    { "$ENV{HOME}/Library/Logs/hangul-nfc-watch.log" }
 # launchd가 실행할 자기 경로. Cwd::abs_path는 심링크를 풀어 Homebrew의 Cellar/<버전>/ 경로를
 # 박으므로(brew upgrade·cleanup 후 감시가 조용히 멈춤) 심링크를 유지한 절대경로만 만든다.
 sub watch_self        { require File::Spec; File::Spec->rel2abs($0) }
 
 sub watch_usage {
     print <<'TXT';
-nfd2nfc watch — 폴더 자동 NFC 감시
+hangul-nfc watch — 폴더 자동 NFC 감시
 
 사용법:
-  nfd2nfc watch add <폴더 ...>     감시 폴더 등록(+즉시 1회 정리)
-  nfd2nfc watch remove <폴더 ...>  등록 해제
-  nfd2nfc watch list               등록 폴더·상태 보기
-  nfd2nfc watch on | off           감시 재개 / 일시 중지
+  hangul-nfc watch add <폴더 ...>     감시 폴더 등록(+즉시 1회 정리)
+  hangul-nfc watch remove <폴더 ...>  등록 해제
+  hangul-nfc watch list               등록 폴더·상태 보기
+  hangul-nfc watch on | off           감시 재개 / 일시 중지
 TXT
 }
 
@@ -485,12 +485,12 @@ PLIST
     close $fh;
 }
 
-# ── launchctl (NFD2NFC_WATCH_NO_LAUNCHCTL=1이면 건너뜀 — 테스트/CI용) ──
+# ── launchctl (HANGUL_NFC_WATCH_NO_LAUNCHCTL=1이면 건너뜀 — 테스트/CI용) ──
 # 출력·오류를 숨기고 종료 코드만 본다(예전 load/unload는 '로드 안 됨' 오류를 화면에 흘렸다).
 sub quiet_system { return system('/bin/sh', '-c', 'exec "$@" >/dev/null 2>&1', 'sh', @_) }
 sub watch_domain { 'gui/' . $< }
 sub watch_load {
-    return if $ENV{NFD2NFC_WATCH_NO_LAUNCHCTL};
+    return if $ENV{HANGUL_NFC_WATCH_NO_LAUNCHCTL};
     my $p = watch_plist_file();
     return unless -f $p;
     quiet_system('/bin/launchctl', 'bootout', watch_domain() . '/' . watch_label());   # 기존 로드 정리
@@ -499,14 +499,14 @@ sub watch_load {
         return if quiet_system('/bin/launchctl', 'bootstrap', watch_domain(), $p) == 0;
         sleep 1;
     }
-    warn "경고: 자동 감시를 켜지 못했습니다 — nfd2nfc doctor 로 확인하세요\n";
+    warn "경고: 자동 감시를 켜지 못했습니다 — hangul-nfc doctor 로 확인하세요\n";
 }
 sub watch_unload {
-    return if $ENV{NFD2NFC_WATCH_NO_LAUNCHCTL};
+    return if $ENV{HANGUL_NFC_WATCH_NO_LAUNCHCTL};
     quiet_system('/bin/launchctl', 'bootout', watch_domain() . '/' . watch_label());
 }
 sub watch_is_loaded {
-    return 0 if $ENV{NFD2NFC_WATCH_NO_LAUNCHCTL};
+    return 0 if $ENV{HANGUL_NFC_WATCH_NO_LAUNCHCTL};
     return quiet_system('/bin/launchctl', 'print', watch_domain() . '/' . watch_label()) == 0 ? 1 : 0;
 }
 
@@ -546,7 +546,7 @@ sub internal_fixed_volume {
 
 sub notify {
     my ($title, $msg) = @_;
-    return if $ENV{NFD2NFC_NO_GUI};
+    return if $ENV{HANGUL_NFC_NO_GUI};
     s/\\/\\\\/g, s/"/\\"/g for $title, $msg;
     system('/usr/bin/osascript', '-e', qq{display notification "$msg" with title "$title"});
 }
@@ -599,13 +599,13 @@ sub watch_drop {
         watch_log("자동 해제($why{$d}): $d");
         warn "자동 감시 해제: $d — $why{$d}\n";
     }
-    notify('nfd2nfc 자동 감시', scalar(keys %why) . '개 폴더를 정리할 수 없어 자동 감시에서 뺐습니다 — 자세히: nfd2nfc doctor');
+    notify('hangul-nfc 자동 감시', scalar(keys %why) . '개 폴더를 정리할 수 없어 자동 감시에서 뺐습니다 — 자세히: hangul-nfc doctor');
 }
 # 로그를 남기고, 바뀐 게 있을 때만 알린다.
 sub watch_report {
     my ($what, $total, $ndirs) = @_;
     watch_log("$what: ${total}개 변경 (${ndirs}개 폴더)");
-    notify('nfd2nfc 자동 감시', "${total}개 파일 이름을 NFC로 자동 정리했습니다") if $total > 0;
+    notify('hangul-nfc 자동 감시', "${total}개 파일 이름을 NFC로 자동 정리했습니다") if $total > 0;
 }
 
 # ── 사용자 명령 ──
@@ -619,7 +619,7 @@ sub watch_add {
             warn "등록 불가: $arg — $why.\n"
                . "  백그라운드 자동 정리가 동작하지 않습니다. 대신 이렇게 쓰세요:\n"
                . "    • Finder에서 선택 → 우클릭 → 빠른 동작 → NFC로 이름 정리\n"
-               . "    • 터미널: nfd2nfc " . sh_quote($arg) . "\n";
+               . "    • 터미널: hangul-nfc " . sh_quote($arg) . "\n";
             next;
         }
         # NFD 강제 볼륨(HFS+·exFAT·FAT)은 정리가 불가능해 등록해 봐야 헛 실행만 반복된다.
@@ -677,31 +677,31 @@ sub capture { open(my $ph, '-|', @_) or return ''; local $/; my $o = <$ph> // ''
 sub slurp { my ($f) = @_; open(my $fh, '<', $f) or return undef; local $/; my $s = <$fh>; close $fh; return $s }
 # CLI가 놓일 수 있는 표준 위치(Homebrew 두 곳 + 직접 설치). Quick Action·uninstall이 함께 쓴다.
 sub cli_candidates {
-    # NFD2NFC_CLI_CANDIDATES(콜론 구분)로 바꿀 수 있다 — 테스트가 실제 시스템 경로를 건드리지 않게.
-    return grep { length } split /:/, $ENV{NFD2NFC_CLI_CANDIDATES} if defined $ENV{NFD2NFC_CLI_CANDIDATES};
-    return ('/opt/homebrew/bin/nfd2nfc', '/usr/local/bin/nfd2nfc', "$ENV{HOME}/.local/bin/nfd2nfc");
+    # HANGUL_NFC_CLI_CANDIDATES(콜론 구분)로 바꿀 수 있다 — 테스트가 실제 시스템 경로를 건드리지 않게.
+    return grep { length } split /:/, $ENV{HANGUL_NFC_CLI_CANDIDATES} if defined $ENV{HANGUL_NFC_CLI_CANDIDATES};
+    return ('/opt/homebrew/bin/hangul-nfc', '/usr/local/bin/hangul-nfc', "$ENV{HOME}/.local/bin/hangul-nfc");
 }
-# Homebrew로 설치된 "우리" nfd2nfc인가. homebrew/core에 이름이 같은 다른 도구(elgar328/nfd2nfc, Rust)가
-# 있어 Cellar 경로만으론 판단할 수 없다 — 내용이 우리 스크립트인지까지 본다.
-sub brew_managed { my ($p) = @_; my $r = Cwd::abs_path($p) // ''; return $r =~ m{/Cellar/nfd2nfc/} && is_our_script($r) }
-# brew 명령엔 항상 전체 이름을 쓴다(core의 동명 formula와 구분). 설치 영수증에 적힌 tap을 우선한다.
+# Homebrew로 설치된 "우리" hangul-nfc인가. 예전 이름 nfd2nfc가 homebrew/core의 다른 도구와 겹쳤듯
+# Cellar 경로만으론 판단할 수 없다 — 내용이 우리 스크립트인지까지 본다.
+sub brew_managed { my ($p) = @_; my $r = Cwd::abs_path($p) // ''; return $r =~ m{/Cellar/hangul-nfc/} && is_our_script($r) }
+# brew 명령엔 항상 전체 이름을 쓴다(다른 tap의 같은 이름과 구분). 설치 영수증에 적힌 tap을 우선한다.
 sub brew_formula {
     my ($p) = @_;
     my $r = Cwd::abs_path($p // watch_self()) // '';
-    if ($r =~ m{^(.*/Cellar/nfd2nfc/[^/]+)/}) {
+    if ($r =~ m{^(.*/Cellar/hangul-nfc/[^/]+)/}) {
         my $receipt = slurp("$1/INSTALL_RECEIPT.json") // '';
-        return "$1/nfd2nfc" if $receipt =~ /"tap"\s*:\s*"([^"]+)"/;
+        return "$1/hangul-nfc" if $receipt =~ /"tap"\s*:\s*"([^"]+)"/;
     }
-    return 'wonjun-lab/tap/nfd2nfc';
+    return 'wonjun-lab/tap/hangul-nfc';
 }
-sub is_our_script { my $s = slurp($_[0]) // ''; return $s =~ /^# nfd2nfc — macOS 한글 파일명/m }
+sub is_our_script { my $s = slurp($_[0]) // ''; return $s =~ /^# hangul-nfc — macOS 한글 파일명/m }
 sub brew_cmd {
     for (qw(/opt/homebrew/bin/brew /usr/local/bin/brew)) { return $_ if -x $_ }
     return find_in_path('brew');
 }
-# 외부 명령(brew 등) 실행. NFD2NFC_DRY_EXTERNAL=1이면 실행 대신 출력만(테스트용).
+# 외부 명령(brew 등) 실행. HANGUL_NFC_DRY_EXTERNAL=1이면 실행 대신 출력만(테스트용).
 sub run_external {
-    if ($ENV{NFD2NFC_DRY_EXTERNAL}) { print "[실행 예정] @_\n"; return 0 }
+    if ($ENV{HANGUL_NFC_DRY_EXTERNAL}) { print "[실행 예정] @_\n"; return 0 }
     return system(@_) == 0 ? 0 : 1;
 }
 sub version_gt {
@@ -709,19 +709,19 @@ sub version_gt {
     for my $i (0 .. 2) { my ($x, $y) = ($a[$i] // 0, $b[$i] // 0); return $x > $y if $x != $y }
     return 0;
 }
-# GitHub 최신 릴리스 버전(실패하면 undef). NFD2NFC_LATEST_VERSION으로 고정 가능(테스트용).
+# GitHub 최신 릴리스 버전(실패하면 undef). HANGUL_NFC_LATEST_VERSION으로 고정 가능(테스트용).
 sub latest_version {
-    return $ENV{NFD2NFC_LATEST_VERSION} if defined $ENV{NFD2NFC_LATEST_VERSION};
-    return undef if $ENV{NFD2NFC_NO_NETWORK};
+    return $ENV{HANGUL_NFC_LATEST_VERSION} if defined $ENV{HANGUL_NFC_LATEST_VERSION};
+    return undef if $ENV{HANGUL_NFC_NO_NETWORK};
     open(my $ph, '-|', '/usr/bin/curl', '-fsS', '-m', '5',
-         'https://api.github.com/repos/wonjun-lab/nfd2nfc/releases/latest') or return undef;
+         'https://api.github.com/repos/wonjun-lab/hangul-nfc/releases/latest') or return undef;
     local $/; my $json = <$ph> // ''; close $ph;
     return $json =~ /"tag_name"\s*:\s*"v?(\d+(?:\.\d+)*)"/ ? $1 : undef;
 }
 # Finder 서비스 메뉴 캐시 갱신 + (선택) Finder 재실행 — 새 메뉴가 바로 보이게.
 sub services_refresh {
     my (%o) = @_;
-    return if $ENV{NFD2NFC_NO_GUI};
+    return if $ENV{HANGUL_NFC_NO_GUI};
     quiet_system('/System/Library/CoreServices/pbs', '-update');
     quiet_system('/System/Library/CoreServices/pbs', '-flush');
     return unless $o{restart_finder};
@@ -741,25 +741,25 @@ sub subcmd_opts {
         if ($ok{$a}) { $o{$a} = 1; next }
         my $help = $a eq '-h' || $a eq '--help';
         warn "알 수 없는 인자: $a\n" unless $help;
-        print "사용법: nfd2nfc $name" . (length $synopsis ? " $synopsis" : '') . "\n";
+        print "사용법: hangul-nfc $name" . (length $synopsis ? " $synopsis" : '') . "\n";
         return (undef, $help ? 0 : 1);
     }
     return (\%o, 0);
 }
 
 # ── Finder 우클릭 메뉴(Quick Action) ─────────────────────────────────────────
-# 메뉴는 설치된 CLI를 호출한다 — brew upgrade·nfd2nfc update로 CLI가 바뀌면 메뉴도 그대로 최신이 된다.
+# 메뉴는 설치된 CLI를 호출한다 — brew upgrade·hangul-nfc update로 CLI가 바뀌면 메뉴도 그대로 최신이 된다.
 # CLI가 없을 때(Releases zip만 설치)를 위해 이 스크립트 사본도 내장해 둔다.
 sub qa_name   { 'NFC로 이름 정리' }
 sub qa_path   { "$ENV{HOME}/Library/Services/" . qa_name() . '.workflow' }
-sub qa_marker { 'nfd2nfc-quick-action: v2' }   # doctor가 예전(사본만 내장) 방식과 구분하는 표식
+sub qa_marker { 'hangul-nfc-quick-action: v2' }   # doctor가 예전(사본만 내장) 방식과 구분하는 표식
 
 sub qa_command {
     my ($cli, $body) = @_;
     my @cands = map { sh_quote($_) } grep { defined } $cli, cli_candidates();
     s{^'\Q$ENV{HOME}\E/}{"\$HOME"'/} for @cands;   # 홈 경로는 실행하는 사용자 기준으로
-    # 후보는 표식(qa_marker)이 든 우리 1.2.0+ 스크립트일 때만 부른다 — 같은 경로에 homebrew/core의
-    # 동명 도구나 옵션이 다른 옛 버전이 있으면 건너뛰고, 끝까지 없으면 내장 사본으로 실행한다.
+    # 후보는 표식(qa_marker)이 든 우리 스크립트일 때만 부른다 — 같은 경로에 이름이 같은 다른 프로그램이나
+    # 옵션이 다른 옛 버전이 있으면 건너뛰고, 끝까지 없으면 내장 사본으로 실행한다.
     my $loop = !@cands ? '' :
           "for c in @cands; do\n"
         . qq{  if [ -x "\$c" ] && grep -q '} . qa_marker() . qq{' "\$c" 2>/dev/null; then\n}
@@ -769,9 +769,9 @@ sub qa_command {
     return "# " . qa_marker() . "\n"
          . qq{[ "\$#" -gt 0 ] || exit 0\n}
          . $loop
-         . qq{/usr/bin/perl - --reveal --notify -- "\$\@" <<'NFD2NFC_EOF'\n}
+         . qq{/usr/bin/perl - --reveal --notify -- "\$\@" <<'HANGUL_NFC_EOF'\n}
          . $body
-         . qq{NFD2NFC_EOF\nexit 0\n};
+         . qq{HANGUL_NFC_EOF\nexit 0\n};
 }
 
 sub qa_build {
@@ -779,7 +779,7 @@ sub qa_build {
     my $body = slurp(watch_self());
     die "스크립트 본문을 읽을 수 없음: " . watch_self() . "\n" unless defined $body;
     # heredoc 종료 표식이 본문에 한 줄로 있으면 내장 사본이 거기서 잘린다.
-    die "스크립트에 'NFD2NFC_EOF' 줄이 있어 Quick Action에 내장할 수 없습니다\n" if $body =~ /^NFD2NFC_EOF$/m;
+    die "스크립트에 'HANGUL_NFC_EOF' 줄이 있어 Quick Action에 내장할 수 없습니다\n" if $body =~ /^HANGUL_NFC_EOF$/m;
     # 기존 번들을 지우고 다시 만들므로, 엉뚱한 경로(~/Library/Services 등)를 통째로 지우지 않게 막는다.
     die "Quick Action 경로는 .workflow로 끝나야 합니다: $bundle\n" unless $bundle =~ /\.workflow\z/;
     die "Quick Action이 아닌 항목이 있어 덮어쓰지 않습니다: $bundle\n"
@@ -802,7 +802,7 @@ sub qa_build {
 \t<key>CFBundleName</key>
 \t<string>$name</string>
 \t<key>CFBundleIdentifier</key>
-\t<string>com.wonjun-lab.nfd2nfc.quickaction</string>
+\t<string>com.wonjun-lab.hangul-nfc.quickaction</string>
 \t<key>NSServices</key>
 \t<array>
 \t\t<dict>
@@ -833,8 +833,73 @@ PLIST
 sub qa_main {
     my ($cmd, $bundle) = @_;
     if (($cmd // '') eq 'build' && defined $bundle) { qa_build($bundle, undef); return 0 }
-    print "사용법: nfd2nfc quick-action build <대상.workflow>\n";
+    print "사용법: hangul-nfc quick-action build <대상.workflow>\n";
     return 1;
+}
+
+# ── 예전 이름(nfd2nfc, 1.x)에서 이전 ─────────────────────────────────────────
+# 1.x는 nfd2nfc라는 이름이었다(homebrew/core의 다른 도구와 이름이 겹쳐 2.0에서 변경). 예전 자동 감시
+# 에이전트는 사라진 nfd2nfc 명령을 부르므로 그대로 두면 조용히 멈춘다 — setup이 옮기고 치운다.
+# Homebrew 설치본은 tap의 formula_renames.json 덕에 brew upgrade가 hangul-nfc로 옮긴다.
+sub legacy_label       { 'com.wonjun-lab.nfd2nfc.watch' }
+sub legacy_plist_file  { "$ENV{HOME}/Library/LaunchAgents/" . legacy_label() . '.plist' }
+sub legacy_support_dir { "$ENV{HOME}/Library/Application Support/nfd2nfc" }
+sub legacy_log_file    { "$ENV{HOME}/Library/Logs/nfd2nfc-watch.log" }
+sub legacy_cli_candidates {
+    return grep { length } split /:/, $ENV{HANGUL_NFC_LEGACY_CANDIDATES} if defined $ENV{HANGUL_NFC_LEGACY_CANDIDATES};
+    return ('/opt/homebrew/bin/nfd2nfc', '/usr/local/bin/nfd2nfc', "$ENV{HOME}/.local/bin/nfd2nfc");
+}
+sub is_legacy_script { my $s = slurp($_[0]) // ''; return $s =~ /^# nfd2nfc — macOS 한글 파일명/m }
+
+# 남은 예전 흔적: [종류, 경로] 목록. 종류 = agent·config·log·cli(직접 설치)·brew(Homebrew 설치본)
+sub legacy_leftovers {
+    my @l;
+    push @l, ['agent',  legacy_plist_file()]  if -e legacy_plist_file();
+    push @l, ['config', legacy_support_dir()] if -e legacy_support_dir();
+    push @l, ['log',    legacy_log_file()]    if -e legacy_log_file();
+    for my $c (legacy_cli_candidates()) {
+        next unless -f $c;
+        my $r = Cwd::abs_path($c) // $c;
+        next unless is_legacy_script($r);
+        push @l, [(-l $c && $r =~ m{/Cellar/nfd2nfc/}) ? 'brew' : 'cli', $c];
+    }
+    return @l;
+}
+
+# 예전 흔적을 치운다. move_watch면 예전 자동 감시 폴더를 새 목록으로 옮겨 다시 켠다(setup),
+# 아니면 지우기만 한다(uninstall). 반환: 한 일 설명 목록.
+sub migrate_legacy {
+    my (%o) = @_;
+    my @done;
+    my $old_list = legacy_support_dir() . '/folders.list';
+    if ($o{move_watch} && -f $old_list) {
+        # 옮길 수 없는 폴더(사라짐·보호 위치)는 빼고 옮긴다.
+        my @old = grep { length && -d $_ && !protected_reason($_) }
+                  map { s/\s+$//r } split /\n/, (slurp($old_list) // '');
+        if (@old) {
+            my %seen;
+            watch_write_list(grep { !$seen{$_}++ } (watch_read_list(), @old));
+            watch_write_plist();
+            watch_load();
+            push @done, '자동 감시 폴더 ' . scalar(@old) . '개를 옮김';
+        }
+    }
+    if (-e legacy_plist_file()) {
+        quiet_system('/bin/launchctl', 'bootout', watch_domain() . '/' . legacy_label())
+            unless $ENV{HANGUL_NFC_WATCH_NO_LAUNCHCTL};
+        unlink legacy_plist_file();
+        push @done, '예전 자동 감시 에이전트 제거';
+    }
+    require File::Path;
+    File::Path::remove_tree(legacy_support_dir()) if -e legacy_support_dir();
+    unlink legacy_log_file();
+    for my $c (legacy_cli_candidates()) {
+        next if -l $c || !-f $c || !is_legacy_script($c);   # Homebrew 설치본(심링크)은 brew upgrade가 옮긴다
+        push @done, "예전 CLI 제거: $c" if unlink $c;
+    }
+    push @done, "Homebrew의 예전 이름 설치본은 'brew upgrade'가 hangul-nfc로 옮깁니다"
+        if grep { $_->[0] eq 'brew' } legacy_leftovers();
+    return @done;
 }
 
 # ── setup: 처음 한 번 — Finder 우클릭 메뉴 설치 ──────────────────────────────
@@ -843,6 +908,7 @@ sub setup_main {
     return $rc unless $opt;
     my %o = %$opt;
     my $cli = watch_self();
+    print "✓ 예전 이름(nfd2nfc)에서 이전: $_\n" for migrate_legacy(move_watch => 1);
     my $had = -e qa_path();
     qa_build(qa_path(), $cli);
     services_refresh(restart_finder => !$o{'--no-restart-finder'});
@@ -850,15 +916,15 @@ sub setup_main {
     print "  (메뉴는 이 CLI를 호출하므로 업데이트하면 함께 최신이 됩니다: $cli)\n";
     (my $dir = $cli) =~ s{/[^/]*$}{};
     if (!grep { $_ eq $dir } split /:/, $ENV{PATH} // '') {
-        print "! 터미널에서 'nfd2nfc'로 부르려면 PATH에 추가하세요:\n"
+        print "! 터미널에서 'hangul-nfc'로 부르려면 PATH에 추가하세요:\n"
             . "    echo 'export PATH=\"$dir:\$PATH\"' >> ~/.zprofile   # 새 터미널부터 적용\n";
     }
     print <<'TXT';
 
 사용법
   • Finder: 파일·폴더 선택 → 우클릭 → 빠른 동작 → NFC로 이름 정리
-  • 터미널: nfd2nfc ~/Desktop/보고서.hwp  (폴더는 하위까지, 미리보기는 -n)
-  • 상태 점검: nfd2nfc doctor · 업데이트: nfd2nfc update · 제거: nfd2nfc uninstall
+  • 터미널: hangul-nfc ~/Desktop/보고서.hwp  (폴더는 하위까지, 미리보기는 -n)
+  • 상태 점검: hangul-nfc doctor · 업데이트: hangul-nfc update · 제거: hangul-nfc uninstall
 
 메뉴가 안 보이면 우클릭 메뉴 맨 아래 '빠른 동작 ▸' 안을 확인하고, 그래도 없으면
 시스템 설정 → 키보드 → 키보드 단축키 → 서비스 → '파일 및 폴더'에서 'NFC로 이름 정리'를 켜세요.
@@ -873,6 +939,7 @@ sub uninstall_main {
     my %o = %$opt;
     require File::Path;
     my $n = 0;
+    print "✓ 예전 이름(nfd2nfc) 흔적 정리: $_\n" for migrate_legacy(move_watch => 0);
     if (-e watch_plist_file() || -e watch_support_dir()) {
         watch_unload();
         unlink watch_plist_file();
@@ -891,7 +958,7 @@ sub uninstall_main {
         if ($brew_link || brew_managed($self)) {
             my $brew = brew_cmd();
             if ($brew) { run_external($brew, 'uninstall', brew_formula($brew_link // $self)) == 0 and print("✓ Homebrew에서 CLI 제거\n") }
-            else       { print "! Homebrew 설치본입니다 — 'brew uninstall nfd2nfc'로 지우세요\n" }
+            else       { print "! Homebrew 설치본입니다 — 'brew uninstall hangul-nfc'로 지우세요\n" }
         }
         # 직접 설치한 사본(install.sh 등)만 지운다 — 심링크(brew)·다른 프로그램 파일은 건드리지 않는다.
         for my $c (cli_candidates()) {
@@ -902,7 +969,7 @@ sub uninstall_main {
             print "· 이 CLI는 표준 위치 밖이라 그대로 뒀습니다: $self\n";
         }
     }
-    print "✓ nfd2nfc 제거 완료\n";
+    print "✓ hangul-nfc 제거 완료\n";
     return 0;
 }
 
@@ -913,14 +980,14 @@ sub doctor_main {
     my $bad = 0;
     my $self = watch_self();
     my $how  = brew_managed($self) ? 'Homebrew' : '직접 설치';
-    print "nfd2nfc $VERSION — $self ($how)\n";
+    print "hangul-nfc $VERSION — $self ($how)\n";
 
-    my $inpath = find_in_path('nfd2nfc');
-    if (!$inpath) { print "! 터미널 PATH에 없음 — 'nfd2nfc setup'이 추가 방법을 안내합니다\n" }
+    my $inpath = find_in_path('hangul-nfc');
+    if (!$inpath) { print "! 터미널 PATH에 없음 — 'hangul-nfc setup'이 추가 방법을 안내합니다\n" }
     elsif (!is_our_script(Cwd::abs_path($inpath) // $inpath)) {
-        # homebrew/core의 동명 도구(elgar328/nfd2nfc, Rust)가 PATH에서 먼저 잡히는 경우
-        print "✗ 터미널의 'nfd2nfc'는 다른 프로그램입니다: $inpath (homebrew/core의 동명 도구?)\n"
-            . "    → 그 도구를 안 쓰면 'brew uninstall nfd2nfc', 쓰면 이 도구는 전체 경로로 실행하세요: $self\n";
+        # 이름이 같은 다른 프로그램이 PATH에서 먼저 잡히는 경우
+        print "✗ 터미널의 'hangul-nfc'는 다른 프로그램입니다: $inpath\n"
+            . "    → PATH에서 이 도구가 먼저 오게 하거나, 전체 경로로 실행하세요: $self\n";
         $bad = 1;
     }
     else { print "✓ 터미널 명령: $inpath\n" }
@@ -928,14 +995,14 @@ sub doctor_main {
     if (-e qa_path()) {
         my $wf = slurp(qa_path() . '/Contents/document.wflow') // '';
         if (index($wf, qa_marker()) >= 0) { print "✓ Finder 우클릭 메뉴: 설치됨(설치된 CLI를 호출 — 업데이트 자동 반영)\n" }
-        else { print "! Finder 우클릭 메뉴: 예전 방식(스크립트 사본 내장 — 업데이트가 반영 안 됨) → nfd2nfc setup\n"; $bad = 1 }
+        else { print "! Finder 우클릭 메뉴: 예전 방식(스크립트 사본 내장 — 업데이트가 반영 안 됨) → hangul-nfc setup\n"; $bad = 1 }
     } else {
-        print "✗ Finder 우클릭 메뉴: 미설치 → nfd2nfc setup\n"; $bad = 1;
+        print "✗ Finder 우클릭 메뉴: 미설치 → hangul-nfc setup\n"; $bad = 1;
     }
 
     my @dirs = watch_read_list();
     if (@dirs) {
-        print "", (watch_is_loaded() || $ENV{NFD2NFC_WATCH_NO_LAUNCHCTL} ? "✓" : "!"),
+        print "", (watch_is_loaded() || $ENV{HANGUL_NFC_WATCH_NO_LAUNCHCTL} ? "✓" : "!"),
               " 자동 감시: ", (watch_is_loaded() ? "활성" : "중지"), " · 폴더 ", scalar(@dirs), "개\n";
         for my $d (@dirs) {
             my $st = !-d $d ? '✗ 폴더 없음'
@@ -949,12 +1016,23 @@ sub doctor_main {
         my @last = grep { /run:|add:|자동 해제/ } split /\n/, $log;
         print "    최근: $_\n" for @last[ ($#last > 2 ? $#last - 2 : 0) .. $#last ];
     } else {
-        print "· 자동 감시: 사용 안 함 (nfd2nfc watch add <폴더>)\n";
+        print "· 자동 감시: 사용 안 함 (hangul-nfc watch add <폴더>)\n";
+    }
+
+    my @legacy = legacy_leftovers();
+    if (@legacy) {
+        my %what = (agent => '자동 감시 에이전트', config => '설정', log => '로그',
+                    cli => '직접 설치한 CLI', brew => 'Homebrew 설치본');
+        print "! 예전 이름(nfd2nfc)의 흔적이 남아 있습니다:\n";
+        print "    · $what{$_->[0]}: $_->[1]\n" for @legacy;
+        print "    → hangul-nfc setup 이 옮기고 정리합니다",
+              (grep({ $_->[0] eq 'brew' } @legacy) ? " (Homebrew 설치본은 brew upgrade 로 옮겨집니다)" : ''), "\n";
+        $bad = 1;
     }
 
     my $latest = latest_version();
     if (!defined $latest)                  { print "? 최신 버전 확인 실패(오프라인?)\n" }
-    elsif (version_gt($latest, $VERSION))  { print "↑ 새 버전 $latest 이 있습니다 → nfd2nfc update\n"; $bad = 1 }
+    elsif (version_gt($latest, $VERSION))  { print "↑ 새 버전 $latest 이 있습니다 → hangul-nfc update\n"; $bad = 1 }
     else                                   { print "✓ 최신 버전\n" }
     return $bad;
 }
@@ -965,8 +1043,8 @@ sub update_main {
     return $rc unless $opt;
     my $latest = latest_version();
     if (!defined $latest) { warn "최신 버전을 확인할 수 없습니다(네트워크 확인)\n"; return 1 }
-    if (!version_gt($latest, $VERSION)) { print "이미 최신입니다 (nfd2nfc $VERSION)\n"; return 0 }
-    print "nfd2nfc $VERSION → $latest\n";
+    if (!version_gt($latest, $VERSION)) { print "이미 최신입니다 (hangul-nfc $VERSION)\n"; return 0 }
+    print "hangul-nfc $VERSION → $latest\n";
     my $self = watch_self();
     if (brew_managed($self)) {
         my $brew = brew_cmd() or do { warn "brew를 찾을 수 없습니다\n"; return 1 };
@@ -976,18 +1054,18 @@ sub update_main {
     # .git이 파일인 worktree·submodule도 잡도록 -e로 본다(덮어쓰면 커밋 안 한 수정이 사라진다).
     if (-e "$dir/.git") { print "git 저장소 사본입니다 — 'git pull'로 업데이트하세요\n"; return 1 }
     if (!-w $self || !-w $dir) { warn "쓰기 권한이 없어 바꿀 수 없습니다: $self\n"; return 1 }
-    my $url = sprintf($ENV{NFD2NFC_UPDATE_URL} // 'https://raw.githubusercontent.com/wonjun-lab/nfd2nfc/v%s/nfd2nfc', $latest);
+    my $url = sprintf($ENV{HANGUL_NFC_UPDATE_URL} // 'https://raw.githubusercontent.com/wonjun-lab/hangul-nfc/v%s/hangul-nfc', $latest);
     my $tmp = "$self.update.$$";
     # 받은 파일이 문법상 온전하고 기대한 버전을 말할 때만 교체한다(중간에 끊긴 다운로드·오류 페이지 방지).
     my $ok = system('/usr/bin/curl', '-fsSL', '-m', '30', '-o', $tmp, $url) == 0
           && quiet_system('/usr/bin/perl', '-c', $tmp) == 0
-          && capture('/usr/bin/perl', $tmp, '--version') eq "nfd2nfc $latest\n";
+          && capture('/usr/bin/perl', $tmp, '--version') eq "hangul-nfc $latest\n";
     if (!$ok) { unlink $tmp; warn "업데이트 실패: 받은 파일을 검증하지 못했습니다 ($url)\n"; return 1 }
     chmod 0755, $tmp;
     rename($tmp, $self) or do { unlink $tmp; warn "업데이트 실패: $!\n"; return 1 };
-    print "✓ 업데이트 완료: nfd2nfc $latest\n";
+    print "✓ 업데이트 완료: hangul-nfc $latest\n";
     my $wf = slurp(qa_path() . '/Contents/document.wflow');
-    print "! Finder 메뉴가 예전 방식입니다 — 'nfd2nfc setup'을 한 번 실행하면 앞으로 자동으로 따라옵니다\n"
+    print "! Finder 메뉴가 예전 방식입니다 — 'hangul-nfc setup'을 한 번 실행하면 앞으로 자동으로 따라옵니다\n"
         if defined $wf && index($wf, qa_marker()) < 0;
     return 0;
 }

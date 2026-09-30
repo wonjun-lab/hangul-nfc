@@ -6,6 +6,17 @@
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-10-01
+
+### Changed — 이름 변경: nfd2nfc → hangul-nfc (BREAKING)
+- homebrew/core에 이름이 같은 다른 도구(elgar328/nfd2nfc, Rust)가 있어, `brew install nfd2nfc`가 엉뚱한 도구를 설치하고 두 도구가 같은 명령 이름(`bin/nfd2nfc`)을 두고 충돌했다. 도구·명령·저장소(`wonjun-lab/hangul-nfc`, 예전 주소는 자동 연결)·Homebrew formula·자동 감시 LaunchAgent 이름(`com.wonjun-lab.hangul-nfc.watch`)·설정/로그 경로·환경변수(`HANGUL_NFC_*`)·릴리스 자산(`hangul-nfc-quick-action.zip`)을 모두 `hangul-nfc`로 바꿨다. 쓰는 법(옵션·하위 명령)은 같다.
+
+### Added — 예전 이름에서 이전
+- **Homebrew**: tap의 `formula_renames.json`으로 `brew upgrade`가 설치된 nfd2nfc를 hangul-nfc로 옮긴다.
+- **`hangul-nfc setup`**이 예전 흔적을 옮기고 치운다 — 예전 자동 감시 폴더(사라진·보호 위치 폴더는 제외)를 새 목록으로 옮겨 다시 켜고, 사라진 `nfd2nfc` 명령을 부르던 예전 에이전트·설정·로그와 직접 설치한 예전 CLI를 지운다(Homebrew 설치본은 `brew upgrade`에 맡김).
+- **`hangul-nfc doctor`**가 예전 이름의 흔적을 찾아 조치를 안내하고, **`uninstall`**은 예전 흔적까지 지운다.
+- `install.sh`는 예전 이름으로 직접 설치한 사본을 치운 뒤 설치하고 `setup`으로 이전을 마친다.
+
 ### Fixed
 - **`curl … | sh` 한 줄 설치에서 Finder 메뉴 설치(`setup`)가 조용히 빠지던 문제** — sh가 스크립트를 표준입력에서 읽는데 `brew install`이 남은 스크립트를 표준입력에서 먹어 버렸다(실측: brew 설치는 됐지만 메뉴 없음). 스크립트 전체를 `main()` 함수로 감싸 끝까지 읽은 뒤 실행하고, brew·setup의 표준입력을 끊었다. `install.sh`는 main 브랜치에서 바로 배포되므로 머지 즉시 반영.
 
@@ -99,9 +110,10 @@
 - `install.sh` BIN_DIR 선택의 도달 불가능한 `elif` 죽은 코드 정리.
 - README 영문 사용법 한 줄에 누락됐던 `--reveal`/`-h` 추가.
 
-[1.2.0]: https://github.com/wonjun-lab/nfd2nfc/releases/tag/v1.2.0
-[1.1.1]: https://github.com/wonjun-lab/nfd2nfc/releases/tag/v1.1.1
-[1.1.0]: https://github.com/wonjun-lab/nfd2nfc/releases/tag/v1.1.0
+[2.0.0]: https://github.com/wonjun-lab/hangul-nfc/releases/tag/v2.0.0
+[1.2.0]: https://github.com/wonjun-lab/hangul-nfc/releases/tag/v1.2.0
+[1.1.1]: https://github.com/wonjun-lab/hangul-nfc/releases/tag/v1.1.1
+[1.1.0]: https://github.com/wonjun-lab/hangul-nfc/releases/tag/v1.1.0
 
 ## [1.0.1] - 2026-06-01
 
@@ -115,7 +127,7 @@
 - `-v`(verbose)가 `-V`(version)로 오인되던 회귀 — `Getopt::Long`의 기본
   대소문자 무시 때문. `no_ignore_case`로 구분.
 
-[1.0.1]: https://github.com/wonjun-lab/nfd2nfc/releases/tag/v1.0.1
+[1.0.1]: https://github.com/wonjun-lab/hangul-nfc/releases/tag/v1.0.1
 
 ## [1.0.0] - 2026-06-01
 
@@ -130,4 +142,4 @@
 - **핵심 버그**: macOS 정규화 비구분 파일시스템에서 충돌 검사(`-e`)가 NFD 파일을
   자기 자신과 충돌로 오인해 모든 변환을 건너뛰던 문제. inode 비교로 교체.
 
-[1.0.0]: https://github.com/wonjun-lab/nfd2nfc/releases/tag/v1.0.0
+[1.0.0]: https://github.com/wonjun-lab/hangul-nfc/releases/tag/v1.0.0

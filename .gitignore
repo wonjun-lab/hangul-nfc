@@ -15,7 +15,7 @@ NFC로 이름 정리.workflow.zip
 
 # 내부 작업 문서 (브레인스토밍 설계·구현 계획) — 공개 리포 비포함
 docs/superpowers/
-nfd2nfc-quick-action.zip
+hangul-nfc-quick-action.zip
 
 # 에이전트 설정/캐시 (작업 디렉토리에 생성되는 별도 리포·심링크) — 공개 리포 비포함
 .agents*

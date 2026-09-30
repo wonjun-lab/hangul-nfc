@@ -14,7 +14,7 @@ labels: bug
 ## 환경
 - macOS 버전:
 - 설치 방법: (Homebrew / install.sh / Quick Action zip)
-- `nfd2nfc --version` 출력:
+- `hangul-nfc --version` 출력:
 
 ## 추가 정보
 <!-- 파일명 예시(가능하면), 오류 메시지 등 -->
