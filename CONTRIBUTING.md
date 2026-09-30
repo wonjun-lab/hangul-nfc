@@ -2,11 +2,11 @@
 
 ## 개발
 
-`nfd2nfc`(perl)가 단일 원본입니다. Quick Action과 설치 스크립트는 이 파일을 임베드/참조합니다.
+`nfd2nfc`(perl)가 단일 원본입니다. Finder 메뉴 생성(`nfd2nfc quick-action build`·`setup`)·설치 관리(`doctor`·`update`·`uninstall`)도 이 파일 안에 있고, 셸 스크립트는 얇은 진입점입니다.
 
 - 코어 수정: `nfd2nfc`
-- Quick Action 재생성: `./build-workflow.sh` (→ `NFC로 이름 정리.workflow.zip`)
-- 설치/제거: `./install.sh`, `./uninstall.sh`
+- 배포 zip 생성: `./build-workflow.sh` (→ `NFC로 이름 정리.workflow.zip`, 내부적으로 `nfd2nfc quick-action build`)
+- 설치/제거: `./install.sh --from-source`(이 저장소 사본을 `~/.local/bin`에 설치해 시험), `./uninstall.sh`
 
 ## 테스트
 

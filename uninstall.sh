@@ -1,35 +1,24 @@
 #!/bin/sh
 #
-# uninstall.sh — nfd2nfc 제거
+# uninstall.sh — nfd2nfc 완전 제거 (= nfd2nfc uninstall)
 #
 #   ./uninstall.sh
 #
+# Finder 우클릭 메뉴·자동 감시·설정·로그와 CLI(직접 설치본, Homebrew 설치본)를 모두 지운다.
+#
 set -eu
 
-WORKFLOW_NAME="NFC로 이름 정리"
-SERVICES_DIR="$HOME/Library/Services"
+MARK='^# nfd2nfc — macOS 한글 파일명'
+HERE=$(cd "$(dirname "$0")" 2>/dev/null && pwd) || HERE=$(pwd)
 
-echo "▸ nfd2nfc 제거를 시작합니다."
-
-# 1) Quick Action 제거
-WF="$SERVICES_DIR/$WORKFLOW_NAME.workflow"
-if [ -d "$WF" ]; then
-    rm -rf "$WF"
-    echo "  ✓ Finder 우클릭 메뉴 제거: $WF"
-    /System/Library/CoreServices/pbs -update >/dev/null 2>&1 || true
-    /System/Library/CoreServices/pbs -flush  >/dev/null 2>&1 || true
-else
-    echo "  - Quick Action 없음(건너뜀)"
-fi
-
-# 2) CLI 제거 (설치 가능 위치들 점검)
-removed_cli=0
-for BIN_DIR in /usr/local/bin "$HOME/.local/bin"; do
-    if [ -f "$BIN_DIR/nfd2nfc" ]; then
-        rm -f "$BIN_DIR/nfd2nfc" && echo "  ✓ CLI 제거: $BIN_DIR/nfd2nfc" && removed_cli=1
-    fi
+# 제거 로직은 CLI 안에 있다. 예전 버전 CLI엔 uninstall이 없으므로 이 저장소 사본을 먼저 쓴다.
+CLI=""
+for c in "$HERE/nfd2nfc" "$(command -v nfd2nfc 2>/dev/null || true)" \
+         /opt/homebrew/bin/nfd2nfc /usr/local/bin/nfd2nfc "$HOME/.local/bin/nfd2nfc"; do
+    if [ -n "$c" ] && [ -f "$c" ] && grep -q "$MARK" "$c" 2>/dev/null && grep -q "^sub uninstall_main" "$c"; then CLI=$c; break; fi
 done
-[ "$removed_cli" -eq 0 ] && echo "  - CLI 없음(건너뜀)"
-
-echo
-echo "✅ 제거 완료."
+if [ -z "$CLI" ]; then
+    echo "설치된 nfd2nfc가 없습니다."
+    exit 0
+fi
+exec /usr/bin/perl "$CLI" uninstall "$@"

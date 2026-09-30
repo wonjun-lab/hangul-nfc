@@ -59,33 +59,30 @@ macOS는 한글 파일명을 자모 단위로 **쪼개서**(NFD, 분해형) 저�
 
 ## <img src="https://api.iconify.design/ph/download-simple-bold.svg?color=%236E7DF2&width=24" width="24" /> 설치
 
-세 가지 방법 중 **하나만** 고르면 됩니다.
-
-### <img src="https://api.iconify.design/simple-icons/homebrew.svg?color=%236E7DF2&width=20" width="20" /> Homebrew — CLI 명령만 쓸 때
+### <img src="https://api.iconify.design/simple-icons/homebrew.svg?color=%236E7DF2&width=20" width="20" /> Homebrew — 권장
 
 ```sh
 brew install wonjun-lab/tap/nfd2nfc
+nfd2nfc setup        # Finder 우클릭 메뉴 설치 (처음 한 번)
 ```
 
-`nfd2nfc` 터미널 명령이 설치됩니다.
+> ⚠️ 탭 이름 없이 `brew install nfd2nfc` 하면 **homebrew/core의 이름만 같은 다른 도구**(Rust로 된 별개 프로젝트)가 설치됩니다. 반드시 `wonjun-lab/tap/nfd2nfc` 로 설치하세요. 둘은 같은 명령 이름을 쓰므로 함께 설치할 수 없고, `install.sh`·`nfd2nfc doctor` 가 충돌을 감지해 알려 줍니다.
 
-### <img src="https://api.iconify.design/ph/cursor-click-bold.svg?color=%236E7DF2&width=20" width="20" /> Finder 우클릭 메뉴 — 터미널을 안 쓸 때
+### <img src="https://api.iconify.design/ph/terminal-window-bold.svg?color=%236E7DF2&width=20" width="20" /> 한 줄 설치 — Homebrew가 없어도
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/wonjun-lab/nfd2nfc/main/install.sh | sh
+```
+
+Homebrew가 있으면 brew로, 없으면 `~/.local/bin` 에 설치하고 `nfd2nfc setup` 까지 알아서 실행합니다.
+
+### <img src="https://api.iconify.design/ph/cursor-click-bold.svg?color=%236E7DF2&width=20" width="20" /> 터미널 없이 — Finder 메뉴만
 
 1. [**Releases**](https://github.com/wonjun-lab/nfd2nfc/releases/latest) 에서 `nfd2nfc-quick-action.zip` 을 내려받아 압축을 풉니다.
 2. 나온 `NFC로 이름 정리.workflow` 를 더블클릭 → *“빠른 동작을 설치하시겠습니까?”* 에서 **설치**.
 3. 끝! 이제 파일·폴더를 우클릭 → **빠른 동작 → NFC로 이름 정리**.
 
-> 더블클릭이 보안으로 막히면 파일을 **우클릭 → 열기** 로 한 번만 실행하세요.
-
-### <img src="https://api.iconify.design/ph/terminal-window-bold.svg?color=%236E7DF2&width=20" width="20" /> 한 줄 설치 — 우클릭 메뉴 + CLI 명령을 한 번에
-
-```sh
-git clone https://github.com/wonjun-lab/nfd2nfc.git
-cd nfd2nfc
-./install.sh
-```
-
-Finder 우클릭 메뉴와 `nfd2nfc` 명령이 함께 설치됩니다. 제거는 `./uninstall.sh`.
+> 더블클릭이 보안으로 막히면 파일을 **우클릭 → 열기** 로 한 번만 실행하세요. 이 방식은 자동 업데이트가 없으니, 새 버전은 zip을 다시 받아 설치하세요.
 
 ---
 
@@ -98,9 +95,16 @@ Finder 우클릭 메뉴와 `nfd2nfc` 명령이 함께 설치됩니다. 제거는
 ```sh
 nfd2nfc ~/Downloads/내폴더            # 폴더 안 전체 정리 (하위 포함)
 nfd2nfc --dry-run ~/Desktop/*.hwp     # 바꾸기 전에 미리보기
-nfd2nfc --notify ~/사진들              # 끝나면 알림 표시
 nfd2nfc -v 보고서.pdf 자료.xlsx        # 여러 파일 + 변경 내역 출력
 ```
+
+| 명령 | 하는 일 |
+| --- | --- |
+| `nfd2nfc setup` | Finder 우클릭 메뉴 설치 (처음 한 번). 메뉴는 설치된 CLI를 부르므로 업데이트하면 함께 최신이 됩니다 |
+| `nfd2nfc doctor` | 설치·메뉴·자동 감시·새 버전 여부를 한눈에 점검하고, 문제마다 해결 명령을 알려 줍니다 |
+| `nfd2nfc update` | 최신 버전으로 업데이트 (Homebrew 설치면 `brew upgrade` 로 위임) |
+| `nfd2nfc uninstall` | 메뉴·자동 감시·설정·로그·CLI까지 한 번에 제거 (`--keep-cli` 로 CLI는 남김) |
+| `nfd2nfc watch …` | 폴더 자동 정리 (아래 참고) |
 
 | 옵션 | 설명 |
 | --- | --- |
@@ -117,23 +121,38 @@ nfd2nfc -v 보고서.pdf 자료.xlsx        # 여러 파일 + 변경 내역 출�
 
 ---
 
-## <img src="https://api.iconify.design/ph/eye-bold.svg?color=%236E7DF2&width=24" width="24" /> 자동 감시 — 폴더를 알아서 정리
-
-자주 NFD 파일이 들어오는 폴더(다운로드·Dropbox 등)를 등록해 두면, 새 파일이 생길 때마다 백그라운드에서 자동으로 NFC로 정리합니다. macOS 기본 `launchd`만 쓰며(의존성 0), 변경이 있을 때만 조용히 알립니다.
+## <img src="https://api.iconify.design/ph/arrows-clockwise-bold.svg?color=%236E7DF2&width=24" width="24" /> 업데이트 · 점검 · 제거
 
 ```sh
-nfd2nfc watch add ~/Downloads ~/Dropbox   # 등록 + 즉시 1회 정리
-nfd2nfc watch list                        # 등록 폴더·상태 보기
-nfd2nfc watch off                         # 잠시 중지
-nfd2nfc watch on                          # 재개
-nfd2nfc watch remove ~/Dropbox            # 해제
+nfd2nfc update       # 최신으로 (Homebrew 설치면 brew upgrade nfd2nfc 와 같음)
+nfd2nfc doctor       # 뭔가 이상하면 먼저 이것부터
+nfd2nfc uninstall    # 흔적 없이 제거 (저장소에서 ./uninstall.sh 도 같음)
 ```
 
+- Finder 메뉴는 설치된 CLI를 호출하므로 **CLI만 업데이트하면 메뉴도 자동으로 최신**입니다. 1.1.x 이하에서 만든 메뉴는 `nfd2nfc setup` 을 한 번 실행하면 이 방식으로 바뀝니다(`doctor` 가 알려 줍니다).
+- `brew uninstall` 만 하면 메뉴·자동 감시가 남습니다. **`nfd2nfc uninstall` 을 쓰세요** — Homebrew 설치본이면 마지막에 `brew uninstall` 까지 해 줍니다.
+
+---
+
+## <img src="https://api.iconify.design/ph/eye-bold.svg?color=%236E7DF2&width=24" width="24" /> 자동 감시 — 폴더를 알아서 정리
+
+자주 NFD 파일이 들어오는 **작업 폴더**를 등록해 두면, 새 파일이 생길 때마다 백그라운드에서 자동으로 정리합니다. macOS 기본 `launchd`만 쓰며(의존성 0), 변경이 있을 때만 조용히 알립니다.
+
+```sh
+nfd2nfc watch add ~/작업 ~/Pictures/스크린샷   # 등록 + 즉시 1회 정리
+nfd2nfc watch list                            # 등록 폴더·상태 보기
+nfd2nfc watch off                             # 잠시 중지
+nfd2nfc watch on                              # 재개
+nfd2nfc watch remove ~/작업                    # 해제
+```
+
+> ⚠️ **다운로드·데스크탑·문서·iCloud Drive·Dropbox/Google Drive(클라우드 저장소)·외장/네트워크 볼륨은 등록할 수 없습니다.** macOS가 이 위치들을 백그라운드 프로그램으로부터 보호하기 때문입니다(개인정보 보호). 서명된 정식 앱이 아닌 도구는 권한 요청 창조차 띄울 수 없어, 등록해도 **조용히 아무 일도 안 일어납니다**(macOS 26에서 실측). 그래서 nfd2nfc는 등록 단계에서 막고 대안을 안내하며, 예전 버전에서 등록해 둔 보호 폴더는 자동으로 해제하고 알립니다. 이런 폴더는 **Finder 우클릭 메뉴**나 **`nfd2nfc ~/Downloads`** 로 정리하세요.
+
 - 등록 폴더는 **하위까지** 정리합니다. 무한루프 없이(idempotent + 10초 간격) 안전하게 동작합니다.
-- 즉시 반응하는 건 **등록 폴더 바로 아래**에 생긴 변화입니다(`launchd` 한계). 하위 폴더 안에 새로 생긴 파일은 **1시간마다 도는 전체 점검**에서 정리됩니다 — 자주 쓰는 하위 폴더가 있으면 그 폴더도 함께 등록하세요.
-- HFS+·exFAT·FAT 볼륨(외장 드라이브 등)과 SMB(NAS 공유 폴더)의 폴더는 등록할 수 없습니다(아래 **바꾸는 범위** 참고).
+- 즉시 반응하는 건 **등록 폴더 바로 아래**에 생긴 변화입니다(`launchd` 한계). 하위 폴더 안에 새로 생긴 파일은 **1시간마다 도는 전체 점검**에서 정리됩니다.
+- HFS+·exFAT·FAT 볼륨과 SMB(NAS 공유 폴더)의 폴더도 등록할 수 없습니다(아래 **바꾸는 범위** 참고).
+- 정리할 수 없게 된 폴더(권한·볼륨 문제)는 조용히 실패하지 않고 감시에서 빠지며 알림이 뜹니다. 상태는 `nfd2nfc doctor` 로 확인하세요.
 - 로그: `~/Library/Logs/nfd2nfc-watch.log` · 설정: `~/Library/Application Support/nfd2nfc/`
-- 켜고 끄기는 로그인 세션 단위로 유지됩니다(launchd LaunchAgent).
 
 ---
 
@@ -225,7 +244,7 @@ nfd2nfc는 그게 불가능한, **올리는 쪽 사용자**를 위한 처방입�
 
 <br>
 
-`install.sh` 나 zip을 쓸 수 없을 때, Automator로 직접 만들 수 있습니다.
+`nfd2nfc setup` 이나 zip을 쓸 수 없을 때, Automator로 직접 만들 수 있습니다.
 
 **Automator** → 새 문서 → **빠른 동작** → *받는 입력:* **파일 또는 폴더**, *위치:* **Finder.app** →
 **셸 스크립트 실행** 추가 → *셸:* `/bin/zsh`, *입력 전달:* **인수로** → 아래를 붙여넣고
@@ -275,7 +294,7 @@ system("/usr/bin/osascript", "-e",
        "display notification \"$msg\" with title \"NFC 이름 정리\"");' "$@"
 ```
 
-> 배포되는 `nfd2nfc-quick-action.zip` 은 `build-workflow.sh` 가 `nfd2nfc` 본문을 그대로 임베드해 자동 생성합니다. 스크립트를 고치면 `./build-workflow.sh` 로 다시 만드세요.
+> 배포되는 `nfd2nfc-quick-action.zip` 과 `nfd2nfc setup` 이 만드는 메뉴는 같은 생성기(`nfd2nfc quick-action build`)로 만들어집니다. 설치된 CLI가 있으면 그것을 호출하고, 없으면 내장한 사본으로 실행합니다.
 
 </details>
 
@@ -300,13 +319,23 @@ characters stay the same; only the underlying Unicode form is normalized.
 
 | Install | How |
 | --- | --- |
-| <img src="https://api.iconify.design/simple-icons/homebrew.svg?color=%236E7DF2&width=18" width="18" align="center" /> Homebrew (CLI) | `brew install wonjun-lab/tap/nfd2nfc` |
+| <img src="https://api.iconify.design/simple-icons/homebrew.svg?color=%236E7DF2&width=18" width="18" align="center" /> Homebrew (recommended) | `brew install wonjun-lab/tap/nfd2nfc && nfd2nfc setup` |
+| <img src="https://api.iconify.design/ph/terminal-window-bold.svg?color=%236E7DF2&width=18" width="18" align="center" /> One-liner (no Homebrew needed) | `curl -fsSL https://raw.githubusercontent.com/wonjun-lab/nfd2nfc/main/install.sh \| sh` |
 | <img src="https://api.iconify.design/ph/cursor-click-bold.svg?color=%236E7DF2&width=18" width="18" align="center" /> Finder only (no terminal) | Download `nfd2nfc-quick-action.zip` from [Releases](https://github.com/wonjun-lab/nfd2nfc/releases/latest), unzip, double-click `NFC로 이름 정리.workflow` |
-| <img src="https://api.iconify.design/ph/terminal-window-bold.svg?color=%236E7DF2&width=18" width="18" align="center" /> CLI + Finder Quick Action | `git clone … && cd nfd2nfc && ./install.sh` |
 
 ```
 nfd2nfc [--dry-run] [--no-recurse] [--notify] [--reveal] [-q] [-f] [-v] [-V] [-h] <paths…>
+nfd2nfc setup        # install the Finder Quick Action (it calls the installed CLI, so updates carry over)
+nfd2nfc doctor       # check install, Quick Action, auto-watch and updates — with a fix for each problem
+nfd2nfc update       # update (delegates to `brew upgrade` for Homebrew installs)
+nfd2nfc uninstall    # remove everything: Quick Action, auto-watch, settings, logs and the CLI
+nfd2nfc watch add|remove|list|on|off <folders…>   # auto-normalize folders in the background
 ```
+
+Auto-watch cannot cover Downloads, Desktop, Documents, iCloud Drive, cloud-storage folders
+(Dropbox, Google Drive…) or external/network volumes: macOS privacy protection (TCC) blocks
+background access there, and unsigned tools cannot even ask for permission. nfd2nfc refuses
+those folders up front and points you to the Finder Quick Action or the CLI instead.
 
 Safe by design: already-NFC files are left untouched, clashes with genuinely different
 files are skipped, and re-running is idempotent.

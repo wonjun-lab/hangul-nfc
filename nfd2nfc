@@ -35,17 +35,21 @@ use Unicode::Normalize qw(NFC compose reorder);
 use Encode qw(decode_utf8 encode_utf8);
 use Getopt::Long qw(GetOptions);
 
-our $VERSION = "1.1.1";
+our $VERSION = "1.2.0";
 
 # 분리된 자모 등 결합 가능한 문자열만 합친다(= NFC에서 '분해' 단계를 뺀 것).
 # NFC는 호환 한자(U+F900~, 예: 樂 U+F914)나 Ω(U+2126) 같은 singleton까지 다른 코드포인트로
 # 바꿔 '보이는 글자'를 바꾼다. macOS도 이들은 분해하지 않으므로 그대로 둬야 한다.
 sub compose_name { return compose(reorder($_[0])) }
 
-# 첫 인자가 'watch'면 자동 감시 서브커맨드로 분기(옵션 파싱 전에 가로챈다).
-if (@ARGV && $ARGV[0] eq 'watch') {
-    shift @ARGV;
-    exit watch_main(@ARGV);
+# 첫 인자가 서브커맨드면 옵션 파싱 전에 분기한다. (같은 이름의 파일은 ./setup 처럼 경로로 준다)
+my %SUBCOMMANDS = (
+    watch => \&watch_main, setup => \&setup_main, doctor => \&doctor_main,
+    update => \&update_main, uninstall => \&uninstall_main, 'quick-action' => \&qa_main,
+);
+if (@ARGV && $SUBCOMMANDS{$ARGV[0]}) {
+    my $cmd = shift @ARGV;
+    exit $SUBCOMMANDS{$cmd}->(@ARGV);
 }
 
 my ($dry, $recurse, $notify, $verbose, $help, $version, $reveal, $quiet, $force, $skip)
@@ -81,9 +85,15 @@ my @inputs = @ARGV;
 sub usage {
     my $code = shift // 0;
     print <<'TXT';
-nfd2nfc — macOS 한글 파일명 NFD→NFC 변환기
+nfd2nfc — macOS 한글 파일명 자소분리(NFD) → 정상(NFC) 정리
 
-사용법:  nfd2nfc [옵션] <파일/폴더 ...>
+사용법:
+  nfd2nfc [옵션] <파일/폴더 ...>   이름 정리 (폴더는 하위까지)
+  nfd2nfc setup                  Finder 우클릭 메뉴 설치 (처음 한 번)
+  nfd2nfc doctor                 설치·메뉴·자동 감시·업데이트 상태 진단
+  nfd2nfc update                 최신 버전으로 업데이트
+  nfd2nfc uninstall              메뉴·자동 감시·설정·CLI 모두 제거
+  nfd2nfc watch <add|remove|list|on|off>   폴더 자동 정리
 
 옵션:
   -n, --dry-run     미리보기 (실제로 바꾸지 않음)
@@ -98,6 +108,7 @@ nfd2nfc — macOS 한글 파일명 NFD→NFC 변환기
   -h, --help        이 도움말
 
   팁: '-'로 시작하는 파일명은 -- 뒤에 두세요  (예: nfd2nfc -- -파일.txt)
+      'setup'·'watch' 같은 이름의 파일은 경로로 주세요  (예: nfd2nfc ./setup)
 TXT
     exit $code;
 }
@@ -475,20 +486,69 @@ PLIST
 }
 
 # ── launchctl (NFD2NFC_WATCH_NO_LAUNCHCTL=1이면 건너뜀 — 테스트/CI용) ──
+# 출력·오류를 숨기고 종료 코드만 본다(예전 load/unload는 '로드 안 됨' 오류를 화면에 흘렸다).
+sub quiet_system { return system('/bin/sh', '-c', 'exec "$@" >/dev/null 2>&1', 'sh', @_) }
+sub watch_domain { 'gui/' . $< }
 sub watch_load {
     return if $ENV{NFD2NFC_WATCH_NO_LAUNCHCTL};
     my $p = watch_plist_file();
     return unless -f $p;
-    system('/bin/launchctl', 'unload', $p);   # 기존 로드 정리(실패 무시)
-    system('/bin/launchctl', 'load', $p);
+    quiet_system('/bin/launchctl', 'bootout', watch_domain() . '/' . watch_label());   # 기존 로드 정리
+    # bootout 직후엔 잠깐 bootstrap이 실패할 수 있어(오류 5·37) 몇 번 재시도한다.
+    for my $try (1 .. 3) {
+        return if quiet_system('/bin/launchctl', 'bootstrap', watch_domain(), $p) == 0;
+        sleep 1;
+    }
+    warn "경고: 자동 감시를 켜지 못했습니다 — nfd2nfc doctor 로 확인하세요\n";
 }
 sub watch_unload {
     return if $ENV{NFD2NFC_WATCH_NO_LAUNCHCTL};
-    system('/bin/launchctl', 'unload', watch_plist_file());
+    quiet_system('/bin/launchctl', 'bootout', watch_domain() . '/' . watch_label());
 }
 sub watch_is_loaded {
     return 0 if $ENV{NFD2NFC_WATCH_NO_LAUNCHCTL};
-    return (system('/bin/launchctl', 'list', watch_label()) == 0) ? 1 : 0;
+    return quiet_system('/bin/launchctl', 'print', watch_domain() . '/' . watch_label()) == 0 ? 1 : 0;
+}
+
+# macOS가 백그라운드 프로그램의 접근을 막는 위치(개인정보 보호 TCC). launchd로 도는 감시는 여기서
+# 'Operation not permitted'로 거부된다(실측). 서명 안 된 도구는 권한 창도 띄울 수 없어, 등록 자체를
+# 막고 대안을 안내한다. 보호 폴더를 품은 상위 폴더(홈 등)도 끝까지 정리할 수 없어 함께 막는다.
+sub protected_reason {
+    my ($abs) = @_;
+    my $p = nfc_str(Cwd::abs_path($abs) // $abs);
+    my $h = nfc_str(Cwd::abs_path($ENV{HOME}) // $ENV{HOME});   # 등록 경로처럼 심링크를 푼 형태로 비교
+    my @prot = (
+        ["$h/Desktop", '데스크탑'], ["$h/Documents", '문서'], ["$h/Downloads", '다운로드'],
+        ["$h/Library/Mobile Documents", 'iCloud Drive'],
+        ["$h/Library/CloudStorage", '클라우드 저장소(Dropbox·Google Drive 등)'],
+    );
+    # APFS 기본은 대소문자 비구분이라 ~/downloads 도 같은 폴더 — 소문자로 맞춰 비교한다.
+    my $lp = lc $p;
+    for (@prot) { my ($d, $n) = @$_; $d = lc $d; return "macOS가 $n 폴더를 백그라운드 프로그램으로부터 보호합니다(개인정보 보호)" if $lp eq $d || index($lp, "$d/") == 0 }
+    for (@prot) { my ($d, $n) = @$_; $d = lc $d; return "macOS가 보호하는 $n 폴더를 품은 상위 폴더입니다" if index("$d/", "$lp/") == 0 }
+    # /Volumes 아래는 이동식·네트워크 볼륨만 보호 대상이다(내장 고정 볼륨은 아님).
+    if ($p =~ m{^/Volumes/([^/]+)}) {
+        return 'macOS가 외장·네트워크 볼륨을 백그라운드 프로그램으로부터 보호합니다(개인정보 보호)'
+            unless internal_fixed_volume("/Volumes/$1");
+    } elsif ($p eq '/Volumes') {
+        return 'macOS가 보호하는 외장·네트워크 볼륨을 품은 상위 폴더입니다';
+    }
+    return '';
+}
+# diskutil이 내장·비이동식이라고 답하는 볼륨만 참. 네트워크 볼륨은 diskutil 정보가 없어 거짓.
+sub internal_fixed_volume {
+    my ($mp) = @_;
+    my $pl = capture('/usr/sbin/diskutil', 'info', '-plist', $mp);
+    return 0 unless $pl =~ m{<key>Internal</key>\s*<true/>};
+    return 0 if $pl =~ m{<key>(?:Ejectable|RemovableMedia|Removable)</key>\s*<true/>};
+    return 1;
+}
+
+sub notify {
+    my ($title, $msg) = @_;
+    return if $ENV{NFD2NFC_NO_GUI};
+    s/\\/\\\\/g, s/"/\\"/g for $title, $msg;
+    system('/usr/bin/osascript', '-e', qq{display notification "$msg" with title "$title"});
 }
 
 # ── 실행(__run): 등록 폴더 전체 정리 + 로그 + 변경시 알림 ──
@@ -514,43 +574,38 @@ sub watch_clean_dir {
 sub watch_changed_count { return $_[0] =~ /완료:\s*(\d+)개 변경/ ? $1 : 0 }
 sub watch_run {
     my @dirs = grep { -d $_ } watch_read_list();
-    my ($total, @forced) = (0);
+    my ($total, %drop) = (0);
     for my $d (@dirs) {
+        # 1.1.x 이하에서 등록된 보호 폴더, 실행 중 권한이 막힌 폴더, NFD 강제 볼륨은 정리할 수 없다.
+        # 남겨 두면 매번 조용히 실패(또는 헛 rename으로 재실행 루프)하므로 감시에서 빼고 알린다.
+        if (my $why = protected_reason($d)) { $drop{$d} = $why; next }
+        if (opendir(my $dh, $d)) { closedir $dh } else { $drop{$d} = "접근 권한 없음($!)"; next }
         my $out = watch_clean_dir($d);
-        push @forced, $d if $out =~ /변경 불가/;
+        if ($out =~ /변경 불가/) { $drop{$d} = '볼륨이 NFD 강제'; next }
         $total += watch_changed_count($out);
     }
     watch_report("run", $total, scalar @dirs);
-    watch_drop_forced(@forced) if @forced;
+    watch_drop(%drop) if %drop;
     return 0;
 }
-# NFD 강제 볼륨(형식 목록 밖 — SMB 등)으로 드러난 폴더는 감시에서 뺀다. 판정은 프로세스마다
-# 잊히므로, 남겨 두면 매 실행의 헛 rename이 WatchPaths를 다시 깨워 10초마다 재실행된다.
-# 목록에서 빠지면 다음 실행부터 rename이 없어 루프가 끊긴다. launchctl 재로드는 실행 중인
-# 자기 자신을 종료시키므로 하지 않고 plist만 갱신한다(다음 로드부터 반영).
-sub watch_drop_forced {
-    my %drop = map { ($_ => 1) } @_;
-    my @keep = grep { !$drop{$_} } watch_read_list();
+# 정리할 수 없는 폴더를 감시에서 뺀다. launchctl 재로드는 실행 중인 자기 자신을 종료시키므로
+# 하지 않고 목록·plist만 갱신한다 — 목록에서 빠지면 다음 실행부터 그 폴더는 건드리지 않는다.
+sub watch_drop {
+    my %why = @_;
+    my @keep = grep { !exists $why{$_} } watch_read_list();
     watch_write_list(@keep);
     watch_write_plist() if -f watch_plist_file();
-    my $list = join(", ", @_);
-    watch_log("자동 해제(볼륨이 NFD 강제): $list");
-    warn "자동 감시 해제: $list — 이 볼륨은 파일명을 NFD로 강제해 정리할 수 없습니다\n";
-    if (!$ENV{NFD2NFC_NO_GUI}) {
-        my $msg = scalar(@_) . "개 폴더는 볼륨이 NFD를 강제해 자동 감시에서 뺐습니다";
-        system('/usr/bin/osascript', '-e',
-               qq{display notification "$msg" with title "nfd2nfc 자동 감시"});
+    for my $d (sort keys %why) {
+        watch_log("자동 해제($why{$d}): $d");
+        warn "자동 감시 해제: $d — $why{$d}\n";
     }
+    notify('nfd2nfc 자동 감시', scalar(keys %why) . '개 폴더를 정리할 수 없어 자동 감시에서 뺐습니다 — 자세히: nfd2nfc doctor');
 }
 # 로그를 남기고, 바뀐 게 있을 때만 알린다.
 sub watch_report {
     my ($what, $total, $ndirs) = @_;
     watch_log("$what: ${total}개 변경 (${ndirs}개 폴더)");
-    if ($total > 0 && !$ENV{NFD2NFC_NO_GUI}) {
-        my $msg = "${total}개 파일 이름을 NFC로 자동 정리했습니다";
-        system('/usr/bin/osascript', '-e',
-               qq{display notification "$msg" with title "nfd2nfc 자동 감시"});
-    }
+    notify('nfd2nfc 자동 감시', "${total}개 파일 이름을 NFC로 자동 정리했습니다") if $total > 0;
 }
 
 # ── 사용자 명령 ──
@@ -560,6 +615,13 @@ sub watch_add {
     for my $arg (@_) {
         my $abs = watch_abs($arg);
         if (!defined $abs || !-d $abs) { warn "폴더가 아니거나 없음: $arg\n"; next; }
+        if (my $why = protected_reason($abs)) {
+            warn "등록 불가: $arg — $why.\n"
+               . "  백그라운드 자동 정리가 동작하지 않습니다. 대신 이렇게 쓰세요:\n"
+               . "    • Finder에서 선택 → 우클릭 → 빠른 동작 → NFC로 이름 정리\n"
+               . "    • 터미널: nfd2nfc " . sh_quote($arg) . "\n";
+            next;
+        }
         # NFD 강제 볼륨(HFS+·exFAT·FAT)은 정리가 불가능해 등록해 봐야 헛 실행만 반복된다.
         my $fs = fstype_of((stat $abs)[0], $abs);
         if (nfd_forcing_fstype($fs)) {
@@ -603,3 +665,484 @@ sub watch_list {
 }
 sub watch_on  { watch_write_plist(); watch_load(); print "감시 재개\n"; return 0; }
 sub watch_off { watch_unload(); print "감시 중지\n"; return 0; }
+
+# ── 공통 도구 ──────────────────────────────────────────────────────────────
+sub sh_quote { my $s = shift; $s =~ s/'/'\\''/g; return "'$s'" }
+sub find_in_path {
+    my ($name) = @_;
+    for my $d (split /:/, $ENV{PATH} // '') { my $p = "$d/$name"; return $p if -f $p && -x $p }
+    return undef;
+}
+sub capture { open(my $ph, '-|', @_) or return ''; local $/; my $o = <$ph> // ''; close $ph; return $o }
+sub slurp { my ($f) = @_; open(my $fh, '<', $f) or return undef; local $/; my $s = <$fh>; close $fh; return $s }
+# CLI가 놓일 수 있는 표준 위치(Homebrew 두 곳 + 직접 설치). Quick Action·uninstall이 함께 쓴다.
+sub cli_candidates {
+    # NFD2NFC_CLI_CANDIDATES(콜론 구분)로 바꿀 수 있다 — 테스트가 실제 시스템 경로를 건드리지 않게.
+    return grep { length } split /:/, $ENV{NFD2NFC_CLI_CANDIDATES} if defined $ENV{NFD2NFC_CLI_CANDIDATES};
+    return ('/opt/homebrew/bin/nfd2nfc', '/usr/local/bin/nfd2nfc', "$ENV{HOME}/.local/bin/nfd2nfc");
+}
+# Homebrew로 설치된 "우리" nfd2nfc인가. homebrew/core에 이름이 같은 다른 도구(elgar328/nfd2nfc, Rust)가
+# 있어 Cellar 경로만으론 판단할 수 없다 — 내용이 우리 스크립트인지까지 본다.
+sub brew_managed { my ($p) = @_; my $r = Cwd::abs_path($p) // ''; return $r =~ m{/Cellar/nfd2nfc/} && is_our_script($r) }
+# brew 명령엔 항상 전체 이름을 쓴다(core의 동명 formula와 구분). 설치 영수증에 적힌 tap을 우선한다.
+sub brew_formula {
+    my ($p) = @_;
+    my $r = Cwd::abs_path($p // watch_self()) // '';
+    if ($r =~ m{^(.*/Cellar/nfd2nfc/[^/]+)/}) {
+        my $receipt = slurp("$1/INSTALL_RECEIPT.json") // '';
+        return "$1/nfd2nfc" if $receipt =~ /"tap"\s*:\s*"([^"]+)"/;
+    }
+    return 'wonjun-lab/tap/nfd2nfc';
+}
+sub is_our_script { my $s = slurp($_[0]) // ''; return $s =~ /^# nfd2nfc — macOS 한글 파일명/m }
+sub brew_cmd {
+    for (qw(/opt/homebrew/bin/brew /usr/local/bin/brew)) { return $_ if -x $_ }
+    return find_in_path('brew');
+}
+# 외부 명령(brew 등) 실행. NFD2NFC_DRY_EXTERNAL=1이면 실행 대신 출력만(테스트용).
+sub run_external {
+    if ($ENV{NFD2NFC_DRY_EXTERNAL}) { print "[실행 예정] @_\n"; return 0 }
+    return system(@_) == 0 ? 0 : 1;
+}
+sub version_gt {
+    my @a = split /\./, shift; my @b = split /\./, shift;
+    for my $i (0 .. 2) { my ($x, $y) = ($a[$i] // 0, $b[$i] // 0); return $x > $y if $x != $y }
+    return 0;
+}
+# GitHub 최신 릴리스 버전(실패하면 undef). NFD2NFC_LATEST_VERSION으로 고정 가능(테스트용).
+sub latest_version {
+    return $ENV{NFD2NFC_LATEST_VERSION} if defined $ENV{NFD2NFC_LATEST_VERSION};
+    return undef if $ENV{NFD2NFC_NO_NETWORK};
+    open(my $ph, '-|', '/usr/bin/curl', '-fsS', '-m', '5',
+         'https://api.github.com/repos/wonjun-lab/nfd2nfc/releases/latest') or return undef;
+    local $/; my $json = <$ph> // ''; close $ph;
+    return $json =~ /"tag_name"\s*:\s*"v?(\d+(?:\.\d+)*)"/ ? $1 : undef;
+}
+# Finder 서비스 메뉴 캐시 갱신 + (선택) Finder 재실행 — 새 메뉴가 바로 보이게.
+sub services_refresh {
+    my (%o) = @_;
+    return if $ENV{NFD2NFC_NO_GUI};
+    quiet_system('/System/Library/CoreServices/pbs', '-update');
+    quiet_system('/System/Library/CoreServices/pbs', '-flush');
+    return unless $o{restart_finder};
+    # killall(강제 종료)은 진행 중인 복사·이동을 끊을 수 있어 AppleEvent로 정상 종료를 요청한다.
+    quiet_system('/usr/bin/osascript', '-e', 'tell application "Finder" to quit');
+    sleep 1;
+    quiet_system('/usr/bin/open', '-a', 'Finder');
+}
+
+# 하위 명령 인자 검사. 모르는 인자나 -h는 아무것도 하지 않고 사용법만 보여 준다
+# (예: 'uninstall --help'·'uninstall -n'이 실제로 지워 버리지 않게).
+sub subcmd_opts {
+    my ($name, $synopsis, $allowed, @args) = @_;
+    my %ok = map { ($_ => 1) } @$allowed;
+    my %o;
+    for my $a (@args) {
+        if ($ok{$a}) { $o{$a} = 1; next }
+        my $help = $a eq '-h' || $a eq '--help';
+        warn "알 수 없는 인자: $a\n" unless $help;
+        print "사용법: nfd2nfc $name" . (length $synopsis ? " $synopsis" : '') . "\n";
+        return (undef, $help ? 0 : 1);
+    }
+    return (\%o, 0);
+}
+
+# ── Finder 우클릭 메뉴(Quick Action) ─────────────────────────────────────────
+# 메뉴는 설치된 CLI를 호출한다 — brew upgrade·nfd2nfc update로 CLI가 바뀌면 메뉴도 그대로 최신이 된다.
+# CLI가 없을 때(Releases zip만 설치)를 위해 이 스크립트 사본도 내장해 둔다.
+sub qa_name   { 'NFC로 이름 정리' }
+sub qa_path   { "$ENV{HOME}/Library/Services/" . qa_name() . '.workflow' }
+sub qa_marker { 'nfd2nfc-quick-action: v2' }   # doctor가 예전(사본만 내장) 방식과 구분하는 표식
+
+sub qa_command {
+    my ($cli, $body) = @_;
+    my @cands = map { sh_quote($_) } grep { defined } $cli, cli_candidates();
+    s{^'\Q$ENV{HOME}\E/}{"\$HOME"'/} for @cands;   # 홈 경로는 실행하는 사용자 기준으로
+    # 후보는 표식(qa_marker)이 든 우리 1.2.0+ 스크립트일 때만 부른다 — 같은 경로에 homebrew/core의
+    # 동명 도구나 옵션이 다른 옛 버전이 있으면 건너뛰고, 끝까지 없으면 내장 사본으로 실행한다.
+    my $loop = !@cands ? '' :
+          "for c in @cands; do\n"
+        . qq{  if [ -x "\$c" ] && grep -q '} . qa_marker() . qq{' "\$c" 2>/dev/null; then\n}
+        . qq{    "\$c" --reveal --notify -- "\$\@"; exit 0\n}
+        . "  fi\n"
+        . "done\n";
+    return "# " . qa_marker() . "\n"
+         . qq{[ "\$#" -gt 0 ] || exit 0\n}
+         . $loop
+         . qq{/usr/bin/perl - --reveal --notify -- "\$\@" <<'NFD2NFC_EOF'\n}
+         . $body
+         . qq{NFD2NFC_EOF\nexit 0\n};
+}
+
+sub qa_build {
+    my ($bundle, $cli) = @_;
+    my $body = slurp(watch_self());
+    die "스크립트 본문을 읽을 수 없음: " . watch_self() . "\n" unless defined $body;
+    # heredoc 종료 표식이 본문에 한 줄로 있으면 내장 사본이 거기서 잘린다.
+    die "스크립트에 'NFD2NFC_EOF' 줄이 있어 Quick Action에 내장할 수 없습니다\n" if $body =~ /^NFD2NFC_EOF$/m;
+    # 기존 번들을 지우고 다시 만들므로, 엉뚱한 경로(~/Library/Services 등)를 통째로 지우지 않게 막는다.
+    die "Quick Action 경로는 .workflow로 끝나야 합니다: $bundle\n" unless $bundle =~ /\.workflow\z/;
+    die "Quick Action이 아닌 항목이 있어 덮어쓰지 않습니다: $bundle\n"
+        if -e $bundle && !-f "$bundle/Contents/document.wflow";
+    require File::Path;
+    File::Path::remove_tree($bundle);
+    File::Path::make_path("$bundle/Contents");
+    my $cmd  = xml_esc(qa_command($cli, $body));
+    my $name = xml_esc(qa_name());
+    my $wflow = qa_wflow_template();
+    $wflow =~ s/__COMMAND__/$cmd/;
+    open(my $w, '>', "$bundle/Contents/document.wflow") or die "쓸 수 없음: $bundle ($!)\n";
+    print $w $wflow; close $w;
+    open(my $i, '>', "$bundle/Contents/Info.plist") or die "쓸 수 없음: $bundle ($!)\n";
+    print $i <<"PLIST"; close $i;
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+\t<key>CFBundleName</key>
+\t<string>$name</string>
+\t<key>CFBundleIdentifier</key>
+\t<string>com.wonjun-lab.nfd2nfc.quickaction</string>
+\t<key>NSServices</key>
+\t<array>
+\t\t<dict>
+\t\t\t<key>NSMenuItem</key>
+\t\t\t<dict>
+\t\t\t\t<key>default</key>
+\t\t\t\t<string>$name</string>
+\t\t\t</dict>
+\t\t\t<key>NSMessage</key>
+\t\t\t<string>runWorkflowAsService</string>
+\t\t\t<key>NSSendFileTypes</key>
+\t\t\t<array>
+\t\t\t\t<string>public.item</string>
+\t\t\t</array>
+\t\t</dict>
+\t</array>
+</dict>
+</plist>
+PLIST
+    for my $f ('document.wflow', 'Info.plist') {
+        quiet_system('/usr/bin/plutil', '-lint', "$bundle/Contents/$f") == 0
+            or die "생성한 Quick Action이 올바르지 않음: $f\n";
+    }
+    return 1;
+}
+
+# quick-action build <번들 경로> — 배포 zip용(설치 위치를 모르는 독립 실행본). build-workflow.sh가 쓴다.
+sub qa_main {
+    my ($cmd, $bundle) = @_;
+    if (($cmd // '') eq 'build' && defined $bundle) { qa_build($bundle, undef); return 0 }
+    print "사용법: nfd2nfc quick-action build <대상.workflow>\n";
+    return 1;
+}
+
+# ── setup: 처음 한 번 — Finder 우클릭 메뉴 설치 ──────────────────────────────
+sub setup_main {
+    my ($opt, $rc) = subcmd_opts('setup', '[--no-restart-finder]', ['--no-restart-finder'], @_);
+    return $rc unless $opt;
+    my %o = %$opt;
+    my $cli = watch_self();
+    my $had = -e qa_path();
+    qa_build(qa_path(), $cli);
+    services_refresh(restart_finder => !$o{'--no-restart-finder'});
+    print "✓ Finder 우클릭 메뉴 " . ($had ? '갱신' : '설치') . ": 빠른 동작 → " . qa_name() . "\n";
+    print "  (메뉴는 이 CLI를 호출하므로 업데이트하면 함께 최신이 됩니다: $cli)\n";
+    (my $dir = $cli) =~ s{/[^/]*$}{};
+    if (!grep { $_ eq $dir } split /:/, $ENV{PATH} // '') {
+        print "! 터미널에서 'nfd2nfc'로 부르려면 PATH에 추가하세요:\n"
+            . "    echo 'export PATH=\"$dir:\$PATH\"' >> ~/.zprofile   # 새 터미널부터 적용\n";
+    }
+    print <<'TXT';
+
+사용법
+  • Finder: 파일·폴더 선택 → 우클릭 → 빠른 동작 → NFC로 이름 정리
+  • 터미널: nfd2nfc ~/Desktop/보고서.hwp  (폴더는 하위까지, 미리보기는 -n)
+  • 상태 점검: nfd2nfc doctor · 업데이트: nfd2nfc update · 제거: nfd2nfc uninstall
+
+메뉴가 안 보이면 우클릭 메뉴 맨 아래 '빠른 동작 ▸' 안을 확인하고, 그래도 없으면
+시스템 설정 → 키보드 → 키보드 단축키 → 서비스 → '파일 및 폴더'에서 'NFC로 이름 정리'를 켜세요.
+TXT
+    return 0;
+}
+
+# ── uninstall: 메뉴·자동 감시·설정·로그·CLI 모두 제거 ────────────────────────
+sub uninstall_main {
+    my ($opt, $rc) = subcmd_opts('uninstall', '[--keep-cli]', ['--keep-cli'], @_);
+    return $rc unless $opt;
+    my %o = %$opt;
+    require File::Path;
+    my $n = 0;
+    if (-e watch_plist_file() || -e watch_support_dir()) {
+        watch_unload();
+        unlink watch_plist_file();
+        File::Path::remove_tree(watch_support_dir());
+        print "✓ 자동 감시 제거\n"; $n++;
+    }
+    unlink watch_log_file() and print("✓ 자동 감시 로그 제거\n");
+    if (-e qa_path()) {
+        File::Path::remove_tree(qa_path());
+        services_refresh();
+        print "✓ Finder 우클릭 메뉴 제거\n"; $n++;
+    }
+    unless ($o{'--keep-cli'}) {
+        my $self = watch_self();
+        my ($brew_link) = grep { -l $_ && brew_managed($_) } cli_candidates();
+        if ($brew_link || brew_managed($self)) {
+            my $brew = brew_cmd();
+            if ($brew) { run_external($brew, 'uninstall', brew_formula($brew_link // $self)) == 0 and print("✓ Homebrew에서 CLI 제거\n") }
+            else       { print "! Homebrew 설치본입니다 — 'brew uninstall nfd2nfc'로 지우세요\n" }
+        }
+        # 직접 설치한 사본(install.sh 등)만 지운다 — 심링크(brew)·다른 프로그램 파일은 건드리지 않는다.
+        for my $c (cli_candidates()) {
+            next if -l $c || !-f $c || !is_our_script($c);
+            if (unlink $c) { print "✓ CLI 제거: $c\n" } else { print "! 지우지 못함: $c ($!)\n" }
+        }
+        if (-f $self && !brew_managed($self) && !grep { $_ eq $self } cli_candidates()) {
+            print "· 이 CLI는 표준 위치 밖이라 그대로 뒀습니다: $self\n";
+        }
+    }
+    print "✓ nfd2nfc 제거 완료\n";
+    return 0;
+}
+
+# ── doctor: 설치·메뉴·자동 감시·업데이트 상태 진단 ────────────────────────────
+sub doctor_main {
+    my ($opt, $rc) = subcmd_opts('doctor', '', [], @_);
+    return $rc unless $opt;
+    my $bad = 0;
+    my $self = watch_self();
+    my $how  = brew_managed($self) ? 'Homebrew' : '직접 설치';
+    print "nfd2nfc $VERSION — $self ($how)\n";
+
+    my $inpath = find_in_path('nfd2nfc');
+    if (!$inpath) { print "! 터미널 PATH에 없음 — 'nfd2nfc setup'이 추가 방법을 안내합니다\n" }
+    elsif (!is_our_script(Cwd::abs_path($inpath) // $inpath)) {
+        # homebrew/core의 동명 도구(elgar328/nfd2nfc, Rust)가 PATH에서 먼저 잡히는 경우
+        print "✗ 터미널의 'nfd2nfc'는 다른 프로그램입니다: $inpath (homebrew/core의 동명 도구?)\n"
+            . "    → 그 도구를 안 쓰면 'brew uninstall nfd2nfc', 쓰면 이 도구는 전체 경로로 실행하세요: $self\n";
+        $bad = 1;
+    }
+    else { print "✓ 터미널 명령: $inpath\n" }
+
+    if (-e qa_path()) {
+        my $wf = slurp(qa_path() . '/Contents/document.wflow') // '';
+        if (index($wf, qa_marker()) >= 0) { print "✓ Finder 우클릭 메뉴: 설치됨(설치된 CLI를 호출 — 업데이트 자동 반영)\n" }
+        else { print "! Finder 우클릭 메뉴: 예전 방식(스크립트 사본 내장 — 업데이트가 반영 안 됨) → nfd2nfc setup\n"; $bad = 1 }
+    } else {
+        print "✗ Finder 우클릭 메뉴: 미설치 → nfd2nfc setup\n"; $bad = 1;
+    }
+
+    my @dirs = watch_read_list();
+    if (@dirs) {
+        print "", (watch_is_loaded() || $ENV{NFD2NFC_WATCH_NO_LAUNCHCTL} ? "✓" : "!"),
+              " 자동 감시: ", (watch_is_loaded() ? "활성" : "중지"), " · 폴더 ", scalar(@dirs), "개\n";
+        for my $d (@dirs) {
+            my $st = !-d $d ? '✗ 폴더 없음'
+                   : protected_reason($d) ? '✗ macOS 보호 위치 — 다음 실행 때 자동 해제됩니다'
+                   : nfd_forcing_fstype(fstype_of((stat $d)[0], $d)) ? '✗ NFD 강제 볼륨 — 다음 실행 때 자동 해제됩니다'
+                   : '✓';
+            $bad = 1 if $st =~ /^✗/;
+            print "    $st  $d\n";
+        }
+        my $log = slurp(watch_log_file()) // '';
+        my @last = grep { /run:|add:|자동 해제/ } split /\n/, $log;
+        print "    최근: $_\n" for @last[ ($#last > 2 ? $#last - 2 : 0) .. $#last ];
+    } else {
+        print "· 자동 감시: 사용 안 함 (nfd2nfc watch add <폴더>)\n";
+    }
+
+    my $latest = latest_version();
+    if (!defined $latest)                  { print "? 최신 버전 확인 실패(오프라인?)\n" }
+    elsif (version_gt($latest, $VERSION))  { print "↑ 새 버전 $latest 이 있습니다 → nfd2nfc update\n"; $bad = 1 }
+    else                                   { print "✓ 최신 버전\n" }
+    return $bad;
+}
+
+# ── update: 설치 방식에 맞춰 최신 버전으로 ──────────────────────────────────
+sub update_main {
+    my ($opt, $rc) = subcmd_opts('update', '', [], @_);
+    return $rc unless $opt;
+    my $latest = latest_version();
+    if (!defined $latest) { warn "최신 버전을 확인할 수 없습니다(네트워크 확인)\n"; return 1 }
+    if (!version_gt($latest, $VERSION)) { print "이미 최신입니다 (nfd2nfc $VERSION)\n"; return 0 }
+    print "nfd2nfc $VERSION → $latest\n";
+    my $self = watch_self();
+    if (brew_managed($self)) {
+        my $brew = brew_cmd() or do { warn "brew를 찾을 수 없습니다\n"; return 1 };
+        return run_external($brew, 'upgrade', brew_formula());
+    }
+    (my $dir = $self) =~ s{/[^/]*$}{};
+    # .git이 파일인 worktree·submodule도 잡도록 -e로 본다(덮어쓰면 커밋 안 한 수정이 사라진다).
+    if (-e "$dir/.git") { print "git 저장소 사본입니다 — 'git pull'로 업데이트하세요\n"; return 1 }
+    if (!-w $self || !-w $dir) { warn "쓰기 권한이 없어 바꿀 수 없습니다: $self\n"; return 1 }
+    my $url = sprintf($ENV{NFD2NFC_UPDATE_URL} // 'https://raw.githubusercontent.com/wonjun-lab/nfd2nfc/v%s/nfd2nfc', $latest);
+    my $tmp = "$self.update.$$";
+    # 받은 파일이 문법상 온전하고 기대한 버전을 말할 때만 교체한다(중간에 끊긴 다운로드·오류 페이지 방지).
+    my $ok = system('/usr/bin/curl', '-fsSL', '-m', '30', '-o', $tmp, $url) == 0
+          && quiet_system('/usr/bin/perl', '-c', $tmp) == 0
+          && capture('/usr/bin/perl', $tmp, '--version') eq "nfd2nfc $latest\n";
+    if (!$ok) { unlink $tmp; warn "업데이트 실패: 받은 파일을 검증하지 못했습니다 ($url)\n"; return 1 }
+    chmod 0755, $tmp;
+    rename($tmp, $self) or do { unlink $tmp; warn "업데이트 실패: $!\n"; return 1 };
+    print "✓ 업데이트 완료: nfd2nfc $latest\n";
+    my $wf = slurp(qa_path() . '/Contents/document.wflow');
+    print "! Finder 메뉴가 예전 방식입니다 — 'nfd2nfc setup'을 한 번 실행하면 앞으로 자동으로 따라옵니다\n"
+        if defined $wf && index($wf, qa_marker()) < 0;
+    return 0;
+}
+
+# Automator "셸 스크립트 실행" 한 단계짜리 빠른 동작(파일·폴더 입력, 인수로 전달, /bin/zsh).
+sub qa_wflow_template {
+    return <<"WFLOW";
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+\t<key>AMApplicationBuild</key>
+\t<string>523</string>
+\t<key>AMApplicationVersion</key>
+\t<string>2.10</string>
+\t<key>AMDocumentVersion</key>
+\t<string>2</string>
+\t<key>actions</key>
+\t<array>
+\t\t<dict>
+\t\t\t<key>action</key>
+\t\t\t<dict>
+\t\t\t\t<key>AMAccepts</key>
+\t\t\t\t<dict>
+\t\t\t\t\t<key>Container</key>
+\t\t\t\t\t<string>List</string>
+\t\t\t\t\t<key>Optional</key>
+\t\t\t\t\t<true/>
+\t\t\t\t\t<key>Types</key>
+\t\t\t\t\t<array>
+\t\t\t\t\t\t<string>com.apple.cocoa.string</string>
+\t\t\t\t\t</array>
+\t\t\t\t</dict>
+\t\t\t\t<key>AMActionVersion</key>
+\t\t\t\t<string>2.0.3</string>
+\t\t\t\t<key>AMApplication</key>
+\t\t\t\t<array>
+\t\t\t\t\t<string>Automator</string>
+\t\t\t\t</array>
+\t\t\t\t<key>AMParameterProperties</key>
+\t\t\t\t<dict>
+\t\t\t\t\t<key>COMMAND_STRING</key>
+\t\t\t\t\t<dict/>
+\t\t\t\t\t<key>CheckedForUserDefaultShell</key>
+\t\t\t\t\t<dict/>
+\t\t\t\t\t<key>inputMethod</key>
+\t\t\t\t\t<dict/>
+\t\t\t\t\t<key>shell</key>
+\t\t\t\t\t<dict/>
+\t\t\t\t\t<key>source</key>
+\t\t\t\t\t<dict/>
+\t\t\t\t</dict>
+\t\t\t\t<key>AMProvides</key>
+\t\t\t\t<dict>
+\t\t\t\t\t<key>Container</key>
+\t\t\t\t\t<string>List</string>
+\t\t\t\t\t<key>Types</key>
+\t\t\t\t\t<array>
+\t\t\t\t\t\t<string>com.apple.cocoa.string</string>
+\t\t\t\t\t</array>
+\t\t\t\t</dict>
+\t\t\t\t<key>ActionBundlePath</key>
+\t\t\t\t<string>/System/Library/Automator/Run Shell Script.action</string>
+\t\t\t\t<key>ActionName</key>
+\t\t\t\t<string>Run Shell Script</string>
+\t\t\t\t<key>ActionParameters</key>
+\t\t\t\t<dict>
+\t\t\t\t\t<key>COMMAND_STRING</key>
+\t\t\t\t\t<string>__COMMAND__</string>
+\t\t\t\t\t<key>CheckedForUserDefaultShell</key>
+\t\t\t\t\t<true/>
+\t\t\t\t\t<key>inputMethod</key>
+\t\t\t\t\t<integer>1</integer>
+\t\t\t\t\t<key>shell</key>
+\t\t\t\t\t<string>/bin/zsh</string>
+\t\t\t\t\t<key>source</key>
+\t\t\t\t\t<string></string>
+\t\t\t\t</dict>
+\t\t\t\t<key>BundleIdentifier</key>
+\t\t\t\t<string>com.apple.Automator.RunShellScript</string>
+\t\t\t\t<key>CFBundleVersion</key>
+\t\t\t\t<string>2.0.3</string>
+\t\t\t\t<key>CanShowSelectedItemsWhenRun</key>
+\t\t\t\t<false/>
+\t\t\t\t<key>CanShowWhenRun</key>
+\t\t\t\t<true/>
+\t\t\t\t<key>Category</key>
+\t\t\t\t<array>
+\t\t\t\t\t<string>AMCategoryUtilities</string>
+\t\t\t\t</array>
+\t\t\t\t<key>Class Name</key>
+\t\t\t\t<string>RunShellScriptAction</string>
+\t\t\t\t<key>InputUUID</key>
+\t\t\t\t<string>8BCDD556-B2E2-41A2-9964-05D3749FB662</string>
+\t\t\t\t<key>Keywords</key>
+\t\t\t\t<array>
+\t\t\t\t\t<string>Shell</string>
+\t\t\t\t\t<string>Script</string>
+\t\t\t\t\t<string>Command</string>
+\t\t\t\t\t<string>Run</string>
+\t\t\t\t\t<string>Unix</string>
+\t\t\t\t</array>
+\t\t\t\t<key>OutputUUID</key>
+\t\t\t\t<string>40B040EB-E7CB-4AEE-847A-4560B3267CFF</string>
+\t\t\t\t<key>UUID</key>
+\t\t\t\t<string>997345B7-856E-4FBB-B773-B9E3076912CC</string>
+\t\t\t\t<key>UnlocalizedApplications</key>
+\t\t\t\t<array>
+\t\t\t\t\t<string>Automator</string>
+\t\t\t\t</array>
+\t\t\t\t<key>arguments</key>
+\t\t\t\t<dict/>
+\t\t\t\t<key>isViewVisible</key>
+\t\t\t\t<true/>
+\t\t\t\t<key>location</key>
+\t\t\t\t<string>449.000000:253.000000</string>
+\t\t\t\t<key>nibPath</key>
+\t\t\t\t<string>/System/Library/Automator/Run Shell Script.action/Contents/Resources/main.nib</string>
+\t\t\t</dict>
+\t\t\t<key>isViewVisible</key>
+\t\t\t<true/>
+\t\t\t<key>location</key>
+\t\t\t<string>449.000000:253.000000</string>
+\t\t\t<key>nibPath</key>
+\t\t\t<string>/System/Library/Automator/Run Shell Script.action/Contents/Resources/main.nib</string>
+\t\t</dict>
+\t</array>
+\t<key>connectors</key>
+\t<dict/>
+\t<key>workflowMetaData</key>
+\t<dict>
+\t\t<key>applicationBundleIDsByPath</key>
+\t\t<dict/>
+\t\t<key>applicationPaths</key>
+\t\t<array/>
+\t\t<key>inputTypeIdentifier</key>
+\t\t<string>com.apple.Automator.fileSystemObject</string>
+\t\t<key>outputTypeIdentifier</key>
+\t\t<string>com.apple.Automator.nothing</string>
+\t\t<key>presentationMode</key>
+\t\t<integer>11</integer>
+\t\t<key>processesInput</key>
+\t\t<integer>0</integer>
+\t\t<key>serviceApplicationBundleID</key>
+\t\t<string></string>
+\t\t<key>serviceInputTypeIdentifier</key>
+\t\t<string>com.apple.Automator.fileSystemObject</string>
+\t\t<key>serviceOutputTypeIdentifier</key>
+\t\t<string>com.apple.Automator.nothing</string>
+\t\t<key>useAutomaticInputType</key>
+\t\t<integer>0</integer>
+\t\t<key>workflowTypeIdentifier</key>
+\t\t<string>com.apple.Automator.servicesMenu</string>
+\t</dict>
+</dict>
+</plist>
+WFLOW
+}
