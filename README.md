@@ -136,13 +136,21 @@ hangul-nfc uninstall    # 흔적 없이 제거 (저장소에서 ./uninstall.sh �
 
 1.x 때 이름은 `nfd2nfc` 였습니다. homebrew/core에 이름이 같은 다른 도구가 있어 2.0부터 `hangul-nfc` 로 바꿨습니다. 명령 이름만 바뀌고 쓰는 법은 같습니다.
 
+**설치 방법과 상관없이 한 줄 설치를 다시 실행하면 끝납니다.**
+
 ```sh
-brew upgrade          # Homebrew로 설치했다면: nfd2nfc → hangul-nfc 로 자동으로 옮겨집니다
-hangul-nfc setup      # 한 번 실행: Finder 메뉴·자동 감시 폴더·설정을 새 이름으로 옮기고 예전 흔적을 정리
+curl -fsSL https://raw.githubusercontent.com/wonjun-lab/hangul-nfc/main/install.sh | sh
 ```
 
-- Homebrew 없이 설치했다면 위 [한 줄 설치](#-한-줄-설치--homebrew가-없어도)를 다시 실행하세요. 설치가 끝나면 `setup` 이 예전 CLI·메뉴·자동 감시를 옮기고 치웁니다.
+Homebrew 설치본은 새 이름으로 옮기고(`brew migrate`) 최신으로 올린 뒤, `hangul-nfc setup` 이 Finder 메뉴·자동 감시 폴더·설정을 새 이름으로 옮기고 예전 흔적을 정리합니다.
+
+- ⚠️ **`brew upgrade` 만으로는 옮겨지지 않습니다.** Homebrew의 탭 신뢰 정책 때문에 이름이 바뀐 formula는 조용히 건너뜁니다(실측). 직접 하려면:
+  ```sh
+  brew trust --formula wonjun-lab/tap/hangul-nfc && brew migrate hangul-nfc && brew upgrade hangul-nfc
+  hangul-nfc setup
+  ```
 - ⚠️ 예전 버전의 `nfd2nfc update`·`nfd2nfc doctor` 로는 2.0을 찾지 못합니다(이름이 바뀌어 "확인 실패"처럼 보입니다). 위 방법으로 옮겨 오세요.
+- 옮기기 전까지도 예전 `nfd2nfc` 1.2.0은 그대로 동작합니다(메뉴·자동 감시 포함).
 - 남은 게 있는지는 `hangul-nfc doctor` 가 알려 줍니다(예전 이름의 흔적도 찾아냅니다).
 - 예전 GitHub 주소(`wonjun-lab/nfd2nfc`)는 웹·git 에서 새 주소로 자동 연결됩니다.
 
@@ -332,9 +340,11 @@ Zero dependencies; it uses the `perl` that already ships with macOS. The visible
 characters stay the same; only the underlying Unicode form is normalized.
 
 > Formerly **nfd2nfc** (renamed in 2.0 to avoid clashing with an unrelated homebrew/core formula).
-> Migrating: `brew upgrade` (moves nfd2nfc → hangul-nfc), then run `hangul-nfc setup` once to move
-> the Finder Quick Action, auto-watch folders and settings. Old GitHub URLs redirect on the web
-> and for git, but the old `nfd2nfc update`/`doctor` cannot see 2.0 — migrate as above.
+> Migrating: just re-run the one-liner below — it migrates a Homebrew install (`brew migrate`),
+> upgrades it, and runs `hangul-nfc setup` to move the Finder Quick Action, auto-watch folders and
+> settings. A plain `brew upgrade` does **not** migrate it (Homebrew's tap-trust policy skips the
+> renamed formula). Old GitHub URLs redirect on the web and for git, but the old
+> `nfd2nfc update`/`doctor` cannot see 2.0.
 
 | Install | How |
 | --- | --- |

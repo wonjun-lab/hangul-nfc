@@ -35,7 +35,7 @@ use Unicode::Normalize qw(NFC compose reorder);
 use Encode qw(decode_utf8 encode_utf8);
 use Getopt::Long qw(GetOptions);
 
-our $VERSION = "2.0.0";
+our $VERSION = "2.0.1";
 
 # 분리된 자모 등 결합 가능한 문자열만 합친다(= NFC에서 '분해' 단계를 뺀 것).
 # NFC는 호환 한자(U+F900~, 예: 樂 U+F914)나 Ω(U+2126) 같은 singleton까지 다른 코드포인트로
@@ -840,7 +840,8 @@ sub qa_main {
 # ── 예전 이름(nfd2nfc, 1.x)에서 이전 ─────────────────────────────────────────
 # 1.x는 nfd2nfc라는 이름이었다(homebrew/core의 다른 도구와 이름이 겹쳐 2.0에서 변경). 예전 자동 감시
 # 에이전트는 사라진 nfd2nfc 명령을 부르므로 그대로 두면 조용히 멈춘다 — setup이 옮기고 치운다.
-# Homebrew 설치본은 tap의 formula_renames.json 덕에 brew upgrade가 hangul-nfc로 옮긴다.
+# Homebrew 설치본은 이름 변경(formula_renames.json)이 있어도 탭 신뢰 정책 때문에 brew upgrade가 옮기지
+# 않는다(실측) — 한 줄 설치(install.sh)를 다시 실행하거나 brew_migrate_hint()의 명령으로 옮긴다.
 sub legacy_label       { 'com.wonjun-lab.nfd2nfc.watch' }
 sub legacy_plist_file  { "$ENV{HOME}/Library/LaunchAgents/" . legacy_label() . '.plist' }
 sub legacy_support_dir { "$ENV{HOME}/Library/Application Support/nfd2nfc" }
@@ -850,6 +851,11 @@ sub legacy_cli_candidates {
     return ('/opt/homebrew/bin/nfd2nfc', '/usr/local/bin/nfd2nfc', "$ENV{HOME}/.local/bin/nfd2nfc");
 }
 sub is_legacy_script { my $s = slurp($_[0]) // ''; return $s =~ /^# nfd2nfc — macOS 한글 파일명/m }
+# Homebrew의 예전 이름(nfd2nfc) 설치본을 옮기는 명령. 이름이 바뀐 formula는 신뢰 등록(brew trust)이 먼저다.
+sub brew_migrate_hint {
+    return "brew trust --formula wonjun-lab/tap/hangul-nfc && brew migrate hangul-nfc && brew upgrade hangul-nfc"
+         . " (또는 한 줄 설치를 다시 실행)";
+}
 
 # 남은 예전 흔적: [종류, 경로] 목록. 종류 = agent·config·log·cli(직접 설치)·brew(Homebrew 설치본)
 sub legacy_leftovers {
@@ -904,7 +910,7 @@ sub migrate_legacy {
     }
     if (grep { $_->[0] eq 'brew' } legacy_leftovers()) {
         push @done, $o{move_watch}
-            ? "Homebrew의 예전 이름 설치본은 'brew upgrade'가 hangul-nfc로 옮깁니다"
+            ? "Homebrew의 예전 이름 설치본이 남아 있습니다 → " . brew_migrate_hint()
             : "Homebrew의 예전 이름 설치본은 'brew uninstall wonjun-lab/tap/nfd2nfc'로 지우세요";
     }
     return @done;
@@ -1034,7 +1040,7 @@ sub doctor_main {
         print "! 예전 이름(nfd2nfc)의 흔적이 남아 있습니다:\n";
         print "    · $what{$_->[0]}: $_->[1]\n" for @legacy;
         print "    → hangul-nfc setup 이 옮기고 정리합니다",
-              (grep({ $_->[0] eq 'brew' } @legacy) ? " (Homebrew 설치본은 brew upgrade 로 옮겨집니다)" : ''), "\n";
+              (grep({ $_->[0] eq 'brew' } @legacy) ? " (Homebrew 설치본: " . brew_migrate_hint() . ")" : ''), "\n";
         $bad = 1;
     }
 

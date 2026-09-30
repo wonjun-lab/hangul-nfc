@@ -6,13 +6,21 @@
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-10-01
+
+### Fixed — Homebrew 이전 경로
+- **`brew upgrade`로는 nfd2nfc → hangul-nfc 이전이 되지 않던 문제**(실측) — Homebrew의 탭 신뢰 정책 때문에 이름이 바뀐 formula(hangul-nfc)는 아직 신뢰되지 않아 `brew upgrade`가 조용히 건너뛰었다. 2.0.0 문서·안내가 "brew upgrade가 옮긴다"고 잘못 적었다.
+  - **한 줄 설치(`install.sh`)를 다시 실행하면 이전까지 끝난다** — 예전 이름 Homebrew 설치본을 감지해 `brew trust` → `brew migrate` → `brew upgrade` 후 `setup`으로 메뉴·자동 감시까지 옮긴다.
+  - `setup`·`doctor`·`uninstall`의 안내를 정확한 명령(`brew trust --formula wonjun-lab/tap/hangul-nfc && brew migrate hangul-nfc && brew upgrade hangul-nfc`)으로 바꿨다. README·formula caveats도 정정.
+  - 실측: nfd2nfc 1.2.0(메뉴·자동 감시 켬) 상태에서 이 경로로 옮기면 감시 폴더·메뉴가 새 이름으로 옮겨지고 새 에이전트가 백그라운드 정리를 이어 간다.
+
 ## [2.0.0] - 2026-10-01
 
 ### Changed — 이름 변경: nfd2nfc → hangul-nfc (BREAKING)
 - homebrew/core에 이름이 같은 다른 도구(elgar328/nfd2nfc, Rust)가 있어, `brew install nfd2nfc`가 엉뚱한 도구를 설치하고 두 도구가 같은 명령 이름(`bin/nfd2nfc`)을 두고 충돌했다. 도구·명령·저장소(`wonjun-lab/hangul-nfc`, 예전 주소는 자동 연결)·Homebrew formula·자동 감시 LaunchAgent 이름(`com.wonjun-lab.hangul-nfc.watch`)·설정/로그 경로·환경변수(`HANGUL_NFC_*`)·릴리스 자산(`hangul-nfc-quick-action.zip`)을 모두 `hangul-nfc`로 바꿨다. 쓰는 법(옵션·하위 명령)은 같다.
 
 ### Added — 예전 이름에서 이전
-- **Homebrew**: tap의 `formula_renames.json`으로 `brew upgrade`가 설치된 nfd2nfc를 hangul-nfc로 옮긴다.
+- **Homebrew**: tap에 `formula_renames.json`(nfd2nfc → hangul-nfc)을 둔다. 다만 Homebrew 탭 신뢰 정책 때문에 `brew upgrade`만으론 옮겨지지 않아(2.0.1에서 보완) 신뢰 등록 → `brew migrate`가 필요하다.
 - **`hangul-nfc setup`**이 예전 흔적을 옮기고 치운다 — 예전 자동 감시 폴더(사라진·보호 위치 폴더는 제외)를 새 목록으로 옮겨 다시 켜고, 사라진 `nfd2nfc` 명령을 부르던 예전 에이전트·설정·로그와 직접 설치한 예전 CLI를 지운다(Homebrew 설치본은 `brew upgrade`에 맡김).
 - **`hangul-nfc doctor`**가 예전 이름의 흔적을 찾아 조치를 안내하고, **`uninstall`**은 예전 흔적까지 지운다.
 - `install.sh`는 새 CLI 설치에 성공한 뒤 `setup`으로 이전을 마친다(설치 실패 시 예전 것을 먼저 지우지 않음).
@@ -110,6 +118,7 @@
 - `install.sh` BIN_DIR 선택의 도달 불가능한 `elif` 죽은 코드 정리.
 - README 영문 사용법 한 줄에 누락됐던 `--reveal`/`-h` 추가.
 
+[2.0.1]: https://github.com/wonjun-lab/hangul-nfc/releases/tag/v2.0.1
 [2.0.0]: https://github.com/wonjun-lab/hangul-nfc/releases/tag/v2.0.0
 [1.2.0]: https://github.com/wonjun-lab/hangul-nfc/releases/tag/v1.2.0
 [1.1.1]: https://github.com/wonjun-lab/hangul-nfc/releases/tag/v1.1.1
