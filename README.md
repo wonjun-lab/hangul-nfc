@@ -130,6 +130,8 @@ nfd2nfc watch remove ~/Dropbox            # 해제
 ```
 
 - 등록 폴더는 **하위까지** 정리합니다. 무한루프 없이(idempotent + 10초 간격) 안전하게 동작합니다.
+- 즉시 반응하는 건 **등록 폴더 바로 아래**에 생긴 변화입니다(`launchd` 한계). 하위 폴더 안에 새로 생긴 파일은 **1시간마다 도는 전체 점검**에서 정리됩니다 — 자주 쓰는 하위 폴더가 있으면 그 폴더도 함께 등록하세요.
+- HFS+·exFAT·FAT 볼륨(외장 드라이브 등)의 폴더는 등록할 수 없습니다(아래 **바꾸는 범위** 참고).
 - 로그: `~/Library/Logs/nfd2nfc-watch.log` · 설정: `~/Library/Application Support/nfd2nfc/`
 - 켜고 끄기는 로그인 세션 단위로 유지됩니다(launchd LaunchAgent).
 
@@ -139,7 +141,7 @@ nfd2nfc watch remove ~/Dropbox            # 해제
 
 네. 보수적으로, 되돌릴 일이 없게 동작합니다.
 
-- 화면에 보이는 글자는 그대로 — 내부 유니코드 정규형만 바꿉니다.
+- 화면에 보이는 글자는 그대로 — 쪼개진 자모 등을 합치기만 합니다. 표준 NFC 변환과 달리 호환 한자(`樂` U+F914 등)나 `Ω`(U+2126) 같은 문자를 다른 코드포인트로 바꾸지 않습니다.
 - 이미 정상(NFC)인 파일은 손대지 않습니다.
 - 여러 번 실행해도 안전합니다(idempotent). 바꿀 게 없으면 아무 일도 일어나지 않습니다.
 - 깊은 폴더부터 처리해, 폴더 이름을 바꿔도 하위 경로가 어긋나지 않습니다.
@@ -158,6 +160,7 @@ nfd2nfc는 **파일·폴더 이름만** NFC로 바꿉니다. 그래서:
 - **파일 내용은 건드리지 않습니다.** 확장자·형식(`png`·`jpg`·`pdf`·`hwp`·`docx`·`xlsx` 등)과 무관하게, 이름만 정규화하고 내용·형식은 그대로 둡니다.
 - **압축 파일 안의 이름은 바꾸지 않습니다.** `zip`·`tar`, 그리고 내부가 압축인 `hwpx`·`docx` 같은 파일은 **파일 자체 이름만** 정규화됩니다. 압축 안에 든 한글 파일명이 NFD라면 다른 OS에서 풀 때 여전히 깨집니다 — 내부까지 고치려면 **macOS에서 풀어 정규화한 뒤 다시 압축**하세요.
 - **앱 번들(`.app`)은 피하세요.** macOS는 `.app`을 폴더로 다뤄, 통째로 정리하면 내부까지 들어갑니다. 보통은 무해하지만 **코드서명된 앱은 서명이 무효화**될 수 있습니다.
+- **HFS+·exFAT·FAT 볼륨에선 바꿀 수 없습니다.** HFS+는 파일명을 디스크에 NFD로 강제 저장하고, exFAT·FAT(USB 메모리 등)은 디스크엔 조합형으로 저장하지만 macOS가 항상 NFD로 보여 줍니다 — 그래서 윈도우에 직접 꽂으면 정상이어도, **이 Mac에서 웹에 올리면 여전히 깨집니다.** nfd2nfc는 이런 볼륨을 감지해 손대지 않고 `N개 변경 불가(볼륨이 NFD 강제)`로 알립니다(종료 코드 1). 올릴 파일은 **APFS 볼륨(내장 디스크 등)으로 복사한 뒤** 정리하세요.
 - **`--force`는 거의 쓸 일이 없습니다.** macOS 기본 볼륨(APFS·HFS+)에선 NFD와 NFC가 같은 파일이라 이름 충돌이 생기지 않습니다. `--force`는 정규형을 구분하는 일부 외장·네트워크 볼륨에서만 의미가 있고, 그곳에선 같은 이름의 **다른 파일을 영구히 덮어쓰므로**(복구 불가) 주의하세요. 기본값(충돌 시 건너뜀)을 권장합니다.
 
 ---
@@ -188,7 +191,7 @@ nfd2nfc는 그게 불가능한, **올리는 쪽 사용자**를 위한 처방입�
 
 ```sh
 /usr/bin/perl -e 'use strict; use warnings;
-use Unicode::Normalize qw(NFC);
+use Unicode::Normalize qw(compose reorder);
 use Encode qw(decode_utf8 encode_utf8);
 my @t;
 sub col {
@@ -200,23 +203,32 @@ sub col {
   }
 }
 col($_) for @ARGV;
-my ($c, $s) = (0, 0);
+my ($c, $s, $x, %ok, %bad) = (0, 0, 0);
 for my $p (sort { ($b =~ tr{/}{}) <=> ($a =~ tr{/}{}) } @t) {
   my $i = rindex($p, "/");
   my $dir  = $i == -1 ? "" : substr($p, 0, $i + 1);
   my $base = $i == -1 ? $p : substr($p, $i + 1);
   my $u = eval { my $cp = $base; decode_utf8($cp, Encode::FB_CROAK) };
   next unless defined $u;
-  my $nb = encode_utf8(NFC($u));
+  # 쪼개진 자모만 합친다(NFC와 달리 호환 한자 등은 그대로 둔다).
+  my $nb = encode_utf8(compose(reorder($u)));
   next if $nb eq $base;
   my $new = $dir . $nb;
+  my @cur = lstat($p);
+  if (@cur && $bad{$cur[0]}) { $x++; next; }
   # APFS는 정규화 비구분 → NFC 이름도 자기 자신으로 잡힌다.
   # inode를 비교해 "진짜 다른 파일"이 있을 때만 건너뛴다.
-  my @cur = lstat($p); my @tgt = lstat($new);
+  my @tgt = lstat($new);
   if (@tgt && (!@cur || $tgt[0] != $cur[0] || $tgt[1] != $cur[1])) { $s++; next; }
-  $c++ if rename($p, $new);
+  next unless rename($p, $new);
+  # HFS+·exFAT·FAT은 이름을 NFD로 되돌린다 → 볼륨마다 첫 변경만 실제로 바뀌었는지 확인.
+  if (!@cur || $ok{$cur[0]}) { $c++; next; }
+  opendir(my $d, $dir eq "" ? "." : $dir) or next;
+  my $hit = grep { $_ eq $nb } readdir($d); closedir($d);
+  if ($hit) { $ok{$cur[0]} = 1; $c++; } else { $bad{$cur[0]} = 1; $x++; }
 }
-my $msg = "이름 정리 완료: ${c}개 변경" . ($s ? ", ${s}개 건너뜀" : "");
+my $msg = "이름 정리 완료: ${c}개 변경" . ($s ? ", ${s}개 건너뜀" : "")
+        . ($x ? ", ${x}개 변경 불가(볼륨이 NFD 강제)" : "");
 system("/usr/bin/osascript", "-e",
        "display notification \"$msg\" with title \"NFC 이름 정리\"");' "$@"
 ```

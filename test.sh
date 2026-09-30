@@ -72,7 +72,7 @@ make_fixture() {
 }
 
 TMP=$(mktemp -d)
-trap 'rm -rf "$TMP"' EXIT
+trap 'hdiutil detach -quiet "$TMP/hfsmnt" >/dev/null 2>&1; rm -rf "$TMP"' EXIT
 
 echo "== nfd2nfc 통합 테스트 =="
 
@@ -221,6 +221,52 @@ before16=$(entry_bytes "$D16"); md5b16=$(md5 -q "$D16"/*.zip)
 after16=$(entry_bytes "$D16"); md5a16=$(md5 -q "$D16"/*.zip)
 if [ "$before16" = "$after16" ] && [ "$md5b16" = "$md5a16" ]; then ok "압축 내부 엔트리명·내용 불변(스코프 밖)"; else ng "압축 내부 변함: name $before16→$after16"; fi
 
+# [17] 호환 한자(U+F914 樂)·기호(U+2126 Ω)는 그대로 두고 분리된 한글 자모만 결합한다.
+#      NFC는 이들을 통합 한자(U+6A02)·그리스 문자(U+03A9)로 바꿔 '보이는 글자'를 바꾼다.
+D17="$TMP/t17"; mkdir -p "$D17"
+/usr/bin/perl -e 'use utf8;use Unicode::Normalize qw(NFD);use Encode qw(encode_utf8);
+  open(my$f,">",$ARGV[0]."/".encode_utf8("\x{F914}\x{2126}".NFD("보고서").".txt"));close$f;' "$D17"
+/usr/bin/perl "$NFD2NFC" -q "$D17"
+cps17=$(/usr/bin/perl -e 'use Encode qw(decode_utf8);opendir(my$d,$ARGV[0]);
+  for(grep{!/^\./}readdir$d){print join(" ",map{sprintf"%04X",ord}split//,decode_utf8($_))}' "$D17")
+if [ "$cps17" = "F914 2126 BCF4 ACE0 C11C 002E 0074 0078 0074" ]; then ok "호환 한자·기호 보존 + 한글 자모 결합"; else ng "호환 문자 변형/미결합: ${cps17}"; fi
+
+# [18] 파일명을 NFD로 강제 저장하는 볼륨(HFS+)에서는 바꿀 수 없으므로 '변경'으로 세지 않고
+#      rename도 시도하지 않는다(헛 rename이 디렉토리 변경 이벤트를 일으켜 watch를 무한 재실행시킴).
+HFS_IMG="$TMP/hfs.dmg"; HFS_MNT="$TMP/hfsmnt"; mkdir -p "$HFS_MNT"
+if hdiutil create -quiet -size 8m -fs HFS+ -volname nfdtest "$HFS_IMG" >/dev/null 2>&1 \
+   && hdiutil attach -quiet -nobrowse -mountpoint "$HFS_MNT" "$HFS_IMG" >/dev/null 2>&1; then
+    mknfd_in() { /usr/bin/perl -e 'use utf8;use Unicode::Normalize qw(NFD);use Encode qw(encode_utf8);open(my$f,">",$ARGV[0]."/".encode_utf8(NFD($ARGV[1])));close$f;' "$1" "$2"; }
+    mkdir -p "$HFS_MNT/w"; mknfd_in "$HFS_MNT/w" "보고서.hwp"
+    mt_b=$(stat -f %m "$HFS_MNT/w"); sleep 1
+    out18=$(/usr/bin/perl "$NFD2NFC" "$HFS_MNT/w" 2>&1); rc18=$?
+    mt_a=$(stat -f %m "$HFS_MNT/w")
+    if echo "$out18" | grep -q "완료: 0개 변경" && echo "$out18" | grep -q "NFD" && [ "$rc18" -ne 0 ] && [ "$mt_b" = "$mt_a" ]; then
+        ok "NFD 강제 볼륨(HFS+): 거짓 '변경' 없음·rename 미시도·비0 종료"
+    else ng "NFD 강제 볼륨 처리 이상: rc=${rc18} mtime ${mt_b}→${mt_a} out=[${out18}]"; fi
+    # watch add도 그런 볼륨의 폴더는 거부한다(등록되면 무의미한 재실행만 반복).
+    WH="$TMP/home"; rm -rf "$WH"; mkdir -p "$WH"
+    HOME="$WH" NFD2NFC_NO_GUI=1 NFD2NFC_WATCH_NO_LAUNCHCTL=1 /usr/bin/perl "$NFD2NFC" watch add "$HFS_MNT/w" >/dev/null 2>&1; rcw=$?
+    nw=$(HOME="$WH" /usr/bin/perl "$NFD2NFC" watch list 2>/dev/null | grep -c "$HFS_MNT")
+    if [ "$rcw" -ne 0 ] && [ "$nw" -eq 0 ]; then ok "watch add: NFD 강제 볼륨 폴더 거부"; else ng "watch add가 NFD 강제 볼륨을 등록함: rc=$rcw n=$nw"; fi
+    # 형식 목록에 없는 NFD 강제 볼륨(SMB 등) 모사: 형식 목록을 비운 사본은 rename 후 확인으로만 판정한다.
+    # 빈 폴더로 등록(add 확인 통과) → 나중에 NFD 유입 → __run이 판정 후 감시에서 빼야 하고,
+    # 다음 __run은 rename을 안 해 폴더를 건드리지 않아야 한다(아니면 WatchPaths 무한 재실행).
+    NOFT="$TMP/nfd2nfc-noftype"; sed 's/hfs|exfat|msdos/__none__/' "$NFD2NFC" > "$NOFT"; chmod +x "$NOFT"
+    WH="$TMP/home"; rm -rf "$WH"; mkdir -p "$WH" "$HFS_MNT/u"
+    HOME="$WH" NFD2NFC_NO_GUI=1 NFD2NFC_WATCH_NO_LAUNCHCTL=1 "$NOFT" watch add "$HFS_MNT/u" >/dev/null 2>&1
+    mknfd_in "$HFS_MNT/u" "보고서.hwp"
+    HOME="$WH" NFD2NFC_NO_GUI=1 NFD2NFC_WATCH_NO_LAUNCHCTL=1 "$NOFT" watch __run >/dev/null 2>&1
+    nu=$(HOME="$WH" /usr/bin/perl "$NFD2NFC" watch list 2>/dev/null | grep -c "$HFS_MNT")
+    mu_b=$(stat -f %m "$HFS_MNT/u"); sleep 1
+    HOME="$WH" NFD2NFC_NO_GUI=1 NFD2NFC_WATCH_NO_LAUNCHCTL=1 "$NOFT" watch __run >/dev/null 2>&1
+    mu_a=$(stat -f %m "$HFS_MNT/u")
+    if [ "$nu" -eq 0 ] && [ "$mu_b" = "$mu_a" ]; then ok "watch __run: 미지 NFD 강제 볼륨 폴더 자동 해제(재실행 루프 차단)"; else ng "미지 NFD 강제 볼륨 루프: 목록=${nu} mtime ${mu_b}→${mu_a}"; fi
+    hdiutil detach -quiet "$HFS_MNT" >/dev/null 2>&1
+else
+    printf '  - HFS+ 이미지 생성/마운트 불가 — [18] 건너뜀\n'
+fi
+
 # ── watch(자동 감시) 케이스 — HOME=$TMP/home 격리, launchctl은 환경변수로 건너뜀 ──
 mknfd_in() { /usr/bin/perl -e 'use utf8;use Unicode::Normalize qw(NFD);use Encode qw(encode_utf8);open(my$f,">",$ARGV[0]."/".encode_utf8(NFD($ARGV[1])));close$f;' "$1" "$2"; }
 
@@ -241,6 +287,16 @@ WH="$TMP/home"; rm -rf "$WH"; mkdir -p "$WH" "$TMP/wp1"
 HOME="$WH" NFD2NFC_WATCH_NO_LAUNCHCTL=1 /usr/bin/perl "$NFD2NFC" watch add "$TMP/wp1" >/dev/null 2>&1
 PL="$WH/Library/LaunchAgents/com.wonjun-lab.nfd2nfc.watch.plist"
 if [ -f "$PL" ] && /usr/bin/plutil -lint "$PL" >/dev/null 2>&1 && grep -q "$TMP/wp1" "$PL"; then ok "watch plist 생성·유효성"; else ng "watch plist 이상"; fi
+# WatchPaths는 하위 폴더 변경을 못 잡으므로 주기 스윕(StartInterval)으로 보완한다.
+if /usr/bin/plutil -extract StartInterval raw "$PL" 2>/dev/null | grep -Eq '^[0-9]+$'; then ok "watch plist 주기 스윕(StartInterval)"; else ng "watch plist에 StartInterval 없음"; fi
+
+# [w3b] Homebrew처럼 심링크로 실행해도 plist엔 심링크 경로가 박혀야 한다.
+#       (실체 경로 Cellar/<버전>/…가 박히면 brew upgrade·cleanup 후 감시가 조용히 멈춤)
+WH="$TMP/home"; rm -rf "$WH"; mkdir -p "$WH" "$TMP/wp2" "$TMP/brew/Cellar/1.0/bin" "$TMP/brew/bin"
+cp "$NFD2NFC" "$TMP/brew/Cellar/1.0/bin/nfd2nfc"; ln -s ../Cellar/1.0/bin/nfd2nfc "$TMP/brew/bin/nfd2nfc"
+HOME="$WH" NFD2NFC_NO_GUI=1 NFD2NFC_WATCH_NO_LAUNCHCTL=1 "$TMP/brew/bin/nfd2nfc" watch add "$TMP/wp2" >/dev/null 2>&1
+prog=$(/usr/bin/plutil -extract ProgramArguments.0 raw "$PL" 2>/dev/null)
+if [ "$prog" = "$TMP/brew/bin/nfd2nfc" ]; then ok "watch plist: 심링크(버전 무관) 경로 유지"; else ng "watch plist 실행 경로가 버전 경로: $prog"; fi
 
 # [w4] on/off 상태 메시지(실제 launchctl은 게이트)
 WH="$TMP/home"; rm -rf "$WH"; mkdir -p "$WH" "$TMP/wo1"
