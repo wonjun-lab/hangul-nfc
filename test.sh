@@ -413,6 +413,13 @@ hout=$(/usr/bin/perl "$NFD2NFC" -h 2>&1)
 if echo "$hout" | grep -q "setup" && echo "$hout" | grep -q "doctor" && echo "$hout" | grep -q "update" \
    && echo "$hout" | grep -q "uninstall" && echo "$hout" | grep -q "watch"; then ok "도움말: setup·doctor·update·uninstall·watch 안내"
 else ng "도움말에 하위 명령 누락"; fi
+# [u8b] install.sh는 `curl | sh`(표준입력으로 읽힘)에서도 끝까지 실행되도록 전체가 함수로 감싸여 있어야 한다.
+#       (감싸지 않으면 brew가 남은 스크립트를 표준입력에서 먹어 setup이 조용히 빠진다 — 실측)
+INST="${NFD2NFC%/*}/install.sh"
+last_line=$(grep -v "^[[:space:]]*$" "$INST" | tail -n 1)
+if [ "$last_line" = 'main "$@"' ] && grep -q "^main() {" "$INST"; then ok "install.sh: curl | sh 안전(전체를 main 함수로 감쌈)"
+else ng "install.sh가 main 함수로 감싸여 있지 않음(마지막 줄: $last_line)"; fi
+
 # [u9] 하위 명령의 -h·모르는 인자는 아무것도 하지 않는다(uninstall --help가 실제로 지우면 안 됨)
 WH="$TMP/uhome"; rm -rf "$WH"; mkdir -p "$WH"
 HOME="$WH" /usr/bin/perl "$NFD2NFC" setup >/dev/null 2>&1
