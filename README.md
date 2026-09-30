@@ -131,7 +131,7 @@ nfd2nfc watch remove ~/Dropbox            # 해제
 
 - 등록 폴더는 **하위까지** 정리합니다. 무한루프 없이(idempotent + 10초 간격) 안전하게 동작합니다.
 - 즉시 반응하는 건 **등록 폴더 바로 아래**에 생긴 변화입니다(`launchd` 한계). 하위 폴더 안에 새로 생긴 파일은 **1시간마다 도는 전체 점검**에서 정리됩니다 — 자주 쓰는 하위 폴더가 있으면 그 폴더도 함께 등록하세요.
-- HFS+·exFAT·FAT 볼륨(외장 드라이브 등)의 폴더는 등록할 수 없습니다(아래 **바꾸는 범위** 참고).
+- HFS+·exFAT·FAT 볼륨(외장 드라이브 등)과 SMB(NAS 공유 폴더)의 폴더는 등록할 수 없습니다(아래 **바꾸는 범위** 참고).
 - 로그: `~/Library/Logs/nfd2nfc-watch.log` · 설정: `~/Library/Application Support/nfd2nfc/`
 - 켜고 끄기는 로그인 세션 단위로 유지됩니다(launchd LaunchAgent).
 
@@ -160,8 +160,50 @@ nfd2nfc는 **파일·폴더 이름만** NFC로 바꿉니다. 그래서:
 - **파일 내용은 건드리지 않습니다.** 확장자·형식(`png`·`jpg`·`pdf`·`hwp`·`docx`·`xlsx` 등)과 무관하게, 이름만 정규화하고 내용·형식은 그대로 둡니다.
 - **압축 파일 안의 이름은 바꾸지 않습니다.** `zip`·`tar`, 그리고 내부가 압축인 `hwpx`·`docx` 같은 파일은 **파일 자체 이름만** 정규화됩니다. 압축 안에 든 한글 파일명이 NFD라면 다른 OS에서 풀 때 여전히 깨집니다 — 내부까지 고치려면 **macOS에서 풀어 정규화한 뒤 다시 압축**하세요.
 - **앱 번들(`.app`)은 피하세요.** macOS는 `.app`을 폴더로 다뤄, 통째로 정리하면 내부까지 들어갑니다. 보통은 무해하지만 **코드서명된 앱은 서명이 무효화**될 수 있습니다.
-- **HFS+·exFAT·FAT 볼륨에선 바꿀 수 없습니다.** HFS+는 파일명을 디스크에 NFD로 강제 저장하고, exFAT·FAT(USB 메모리 등)은 디스크엔 조합형으로 저장하지만 macOS가 항상 NFD로 보여 줍니다 — 그래서 윈도우에 직접 꽂으면 정상이어도, **이 Mac에서 웹에 올리면 여전히 깨집니다.** nfd2nfc는 이런 볼륨을 감지해 손대지 않고 `N개 변경 불가(볼륨이 NFD 강제)`로 알립니다(종료 코드 1). 올릴 파일은 **APFS 볼륨(내장 디스크 등)으로 복사한 뒤** 정리하세요.
+- **HFS+·exFAT·FAT·SMB(NAS 공유 폴더) 볼륨에선 바꿀 수 없습니다.** HFS+는 파일명을 디스크에 NFD로 강제 저장하고, exFAT·FAT(USB 메모리 등)과 SMB는 디스크(서버)엔 조합형으로 저장하지만 macOS가 항상 NFD로 보여 줍니다 — 그래서 윈도우·NAS에서 직접 보면 정상이어도, **이 Mac에서 웹에 올리면 여전히 깨집니다.** nfd2nfc는 이런 볼륨을 감지해 손대지 않고 `N개 변경 불가(볼륨이 NFD 강제)`로 알립니다(종료 코드 1). 올릴 파일은 **APFS 볼륨(내장 디스크 등)으로 복사한 뒤** 정리하세요.
+- **NAS에 NFD로 올라간 이름은 NAS에서 정리하세요.** rsync·scp 등으로 Mac에서 NAS로 옮긴 파일은 NAS 디스크에 NFD 그대로 저장될 수 있습니다. 이런 파일은 Mac에서 SMB로 목록엔 보여도 **열리지 않고 이름도 바꿀 수 없습니다**(실측: Synology DSM 7). 아래 스크립트를 NAS에서 실행하면 정리되고, 그 뒤엔 Mac에서도 정상으로 열립니다.
 - **`--force`는 거의 쓸 일이 없습니다.** macOS 기본 볼륨(APFS·HFS+)에선 NFD와 NFC가 같은 파일이라 이름 충돌이 생기지 않습니다. `--force`는 정규형을 구분하는 일부 외장·네트워크 볼륨에서만 의미가 있고, 그곳에선 같은 이름의 **다른 파일을 영구히 덮어쓰므로**(복구 불가) 주의하세요. 기본값(충돌 시 건너뜀)을 권장합니다.
+
+<details>
+<summary>NAS(Linux·Synology)에서 직접 정리하는 스크립트</summary>
+
+<br>
+
+Synology DSM엔 perl이 없어 기본 `python3`(3.8+)용으로 제공합니다. nfd2nfc와 같은 규칙(쪼개진 자모만 합치고 호환 한자 등은 보존, 깊은 곳부터, 같은 이름이 있으면 건너뜀)으로 동작합니다. NAS에 SSH로 접속해 아래를 `nas-nfc.py` 로 저장한 뒤 실행하세요.
+
+```sh
+python3 nas-nfc.py -n /volume1/공유폴더   # 미리보기
+python3 nas-nfc.py /volume1/공유폴더      # 실제 변경
+```
+
+```python
+import os, sys, unicodedata as ud
+def fix(s):  # 쪼개진 자모만 합친다 — NFC가 바꾸는 호환 한자·Ω 등은 그대로
+    out, seg = [], ""
+    for ch in s:
+        if ud.normalize("NFC", ch) != ch:
+            out += [ud.normalize("NFC", seg), ch]; seg = ""
+        else:
+            seg += ch
+    return "".join(out) + ud.normalize("NFC", seg)
+dry = sys.argv[1:2] == ["-n"]
+n = 0
+for top in sys.argv[1 + dry:]:
+    for d, subs, files in os.walk(top, topdown=False):
+        for name in subs + files:
+            new = fix(name)
+            if new == name or name == "@eaDir":
+                continue
+            if os.path.lexists(os.path.join(d, new)):
+                print("건너뜀(같은 이름 존재):", os.path.join(d, name)); continue
+            print(("[미리보기] " if dry else "변경: ") + os.path.join(d, name))
+            if not dry:
+                os.rename(os.path.join(d, name), os.path.join(d, new))
+            n += 1
+print(("미리보기: %d개 변경 예정" if dry else "완료: %d개 변경") % n)
+```
+
+</details>
 
 ---
 
