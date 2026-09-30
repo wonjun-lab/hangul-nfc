@@ -473,13 +473,14 @@ mk_legacy() {
 # [m1] doctor는 예전 흔적을 알리고(비0), setup은 감시 폴더(옮길 수 있는 것만)를 옮기고 예전 흔적을 모두 치운다
 mk_legacy
 dm_before=$(HOME="$WH" /usr/bin/perl "$HANGUL_NFC" doctor 2>&1); db=$?
-HOME="$WH" /usr/bin/perl "$HANGUL_NFC" setup >/dev/null 2>&1
+sm=$(HOME="$WH" /usr/bin/perl "$HANGUL_NFC" setup 2>&1)
 moved=$(cat "$WH/Library/Application Support/hangul-nfc/folders.list" 2>/dev/null)
 okdir=$(cd "$TMP/mig/ok" && pwd -P)
 leftover=$(find "$WH" -name '*nfd2nfc*' 2>/dev/null | wc -l | tr -d ' ')
 HOME="$WH" /usr/bin/perl "$HANGUL_NFC" doctor >/dev/null 2>&1; da=$?
 if [ "$db" -ne 0 ] && echo "$dm_before" | grep -q "예전 이름(nfd2nfc)" && [ "$moved" = "$okdir" ] && [ "$leftover" -eq 0 ] && [ "$da" -eq 0 ] \
-   && [ -d "$WH/Library/Services/NFC로 이름 정리.workflow" ]; then
+   && [ -d "$WH/Library/Services/NFC로 이름 정리.workflow" ] \
+   && [ "$(echo "$sm" | grep -c "자동 감시에서 제외")" -eq 2 ]; then
     ok "이전: doctor가 예전 흔적 안내 → setup이 감시 폴더 이전(유효한 것만)·예전 흔적 정리·메뉴 설치"
 else ng "이전 이상: doctor전=$db 후=$da 옮긴목록=[$moved] 잔여=$leftover"; fi
 

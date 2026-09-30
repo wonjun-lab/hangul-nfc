@@ -17,7 +17,6 @@ set -eu
 main() {
 REPO=wonjun-lab/hangul-nfc
 MARK='^# hangul-nfc — macOS 한글 파일명'
-LEGACY_MARK='^# nfd2nfc — macOS 한글 파일명'   # 1.x 때 이름
 # curl | sh 로 실행되면 $0은 "sh"라 파일이 아니다 — 그때는 저장소 사본을 찾지 않는다(현재 폴더의 옛 사본 오인 방지).
 HERE=""
 if [ -f "$0" ]; then HERE=$(cd "$(dirname "$0")" && pwd); fi
@@ -31,13 +30,8 @@ done
 
 echo "▸ hangul-nfc 설치를 시작합니다."
 
-# 예전 이름(nfd2nfc)으로 직접 설치한 사본을 치운다 — 1.1.x 이하 install.sh는 Homebrew 경로에도 뒀다.
-# 우리 스크립트인 일반 파일만(심링크는 brew 것). 메뉴·자동 감시 이전은 아래 setup이 한다.
-for f in /opt/homebrew/bin/nfd2nfc /usr/local/bin/nfd2nfc "$HOME/.local/bin/nfd2nfc"; do
-    if [ -f "$f" ] && [ ! -L "$f" ] && grep -q "$LEGACY_MARK" "$f" 2>/dev/null; then
-        rm -f "$f" && echo "  ✓ 예전 설치본 정리: $f"
-    fi
-done
+# 예전 이름(nfd2nfc)의 CLI·메뉴·자동 감시는 새 CLI 설치에 성공한 뒤 아래 setup이 옮기고 치운다
+# (먼저 지웠다가 설치가 실패하면 예전 것도 새 것도 없는 상태가 된다).
 
 BREW=""
 for b in /opt/homebrew/bin/brew /usr/local/bin/brew; do

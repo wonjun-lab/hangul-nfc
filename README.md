@@ -141,9 +141,10 @@ brew upgrade          # Homebrew로 설치했다면: nfd2nfc → hangul-nfc 로 
 hangul-nfc setup      # 한 번 실행: Finder 메뉴·자동 감시 폴더·설정을 새 이름으로 옮기고 예전 흔적을 정리
 ```
 
-- Homebrew 없이 설치했다면 위 [한 줄 설치](#-한-줄-설치--homebrew가-없어도)를 다시 실행하세요. 예전 CLI를 치우고 `setup` 까지 해 줍니다.
+- Homebrew 없이 설치했다면 위 [한 줄 설치](#-한-줄-설치--homebrew가-없어도)를 다시 실행하세요. 설치가 끝나면 `setup` 이 예전 CLI·메뉴·자동 감시를 옮기고 치웁니다.
+- ⚠️ 예전 버전의 `nfd2nfc update`·`nfd2nfc doctor` 로는 2.0을 찾지 못합니다(이름이 바뀌어 "확인 실패"처럼 보입니다). 위 방법으로 옮겨 오세요.
 - 남은 게 있는지는 `hangul-nfc doctor` 가 알려 줍니다(예전 이름의 흔적도 찾아냅니다).
-- 예전 GitHub 주소(`wonjun-lab/nfd2nfc`)는 새 주소로 자동 연결됩니다.
+- 예전 GitHub 주소(`wonjun-lab/nfd2nfc`)는 웹·git 에서 새 주소로 자동 연결됩니다.
 
 ---
 
@@ -332,7 +333,8 @@ characters stay the same; only the underlying Unicode form is normalized.
 
 > Formerly **nfd2nfc** (renamed in 2.0 to avoid clashing with an unrelated homebrew/core formula).
 > Migrating: `brew upgrade` (moves nfd2nfc → hangul-nfc), then run `hangul-nfc setup` once to move
-> the Finder Quick Action, auto-watch folders and settings. Old GitHub URLs redirect.
+> the Finder Quick Action, auto-watch folders and settings. Old GitHub URLs redirect on the web
+> and for git, but the old `nfd2nfc update`/`doctor` cannot see 2.0 — migrate as above.
 
 | Install | How |
 | --- | --- |

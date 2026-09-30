@@ -873,9 +873,14 @@ sub migrate_legacy {
     my @done;
     my $old_list = legacy_support_dir() . '/folders.list';
     if ($o{move_watch} && -f $old_list) {
-        # 옮길 수 없는 폴더(사라짐·보호 위치)는 빼고 옮긴다.
-        my @old = grep { length && -d $_ && !protected_reason($_) }
-                  map { s/\s+$//r } split /\n/, (slurp($old_list) // '');
+        # 옮길 수 없는 폴더(사라짐·보호 위치)는 빼고 옮기되, 뺀 폴더도 알린다(예전 목록은 곧 지운다).
+        my (@old, @skip);
+        for my $d (grep { length } map { s/\s+$//r } split /\n/, (slurp($old_list) // '')) {
+            if    (!-d $d)                     { push @skip, "$d (폴더 없음)" }
+            elsif (my $why = protected_reason($d)) { push @skip, "$d ($why)" }
+            else                               { push @old, $d }
+        }
+        push @done, "자동 감시에서 제외: $_" for @skip;
         if (@old) {
             my %seen;
             watch_write_list(grep { !$seen{$_}++ } (watch_read_list(), @old));
@@ -894,11 +899,14 @@ sub migrate_legacy {
     File::Path::remove_tree(legacy_support_dir()) if -e legacy_support_dir();
     unlink legacy_log_file();
     for my $c (legacy_cli_candidates()) {
-        next if -l $c || !-f $c || !is_legacy_script($c);   # Homebrew 설치본(심링크)은 brew upgrade가 옮긴다
-        push @done, "예전 CLI 제거: $c" if unlink $c;
+        next if -l $c || !-f $c || !is_legacy_script($c);   # Homebrew 설치본(심링크)은 brew가 맡는다
+        push @done, unlink($c) ? "예전 CLI 제거: $c" : "! 예전 CLI를 지우지 못함: $c ($!) — 직접 지우세요";
     }
-    push @done, "Homebrew의 예전 이름 설치본은 'brew upgrade'가 hangul-nfc로 옮깁니다"
-        if grep { $_->[0] eq 'brew' } legacy_leftovers();
+    if (grep { $_->[0] eq 'brew' } legacy_leftovers()) {
+        push @done, $o{move_watch}
+            ? "Homebrew의 예전 이름 설치본은 'brew upgrade'가 hangul-nfc로 옮깁니다"
+            : "Homebrew의 예전 이름 설치본은 'brew uninstall wonjun-lab/tap/nfd2nfc'로 지우세요";
+    }
     return @done;
 }
 
