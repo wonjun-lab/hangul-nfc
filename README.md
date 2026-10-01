@@ -34,7 +34,7 @@
 
 ## <img src="https://api.iconify.design/ph/warning-bold.svg?color=%236E7DF2&width=24" width="24" /> 무슨 문제냐면
 
-macOS는 한글 파일명을 자모 단위로 **쪼개서**(NFD, 분해형) 저장합니다. 반면 윈도우·리눅스·대부분의 웹은 글자를 **합쳐서**(NFC, 조합형) 다룹니다. 화면에선 똑같이 `안녕.txt` 로 보이지만 내부 바이트가 다릅니다.
+Mac에서는 Finder 등 많은 앱이 한글 파일명을 자모 단위로 **쪼갠 형태**(NFD, 분해형)로 만들고, 디스크(APFS)는 받은 형태 그대로 보관합니다. 반면 윈도우·리눅스·대부분의 웹은 글자를 **합쳐서**(NFC, 조합형) 다룹니다. 화면에선 똑같이 `안녕.txt` 로 보이지만 내부 바이트가 다릅니다.
 
 문제는 **업로드할 때** 드러납니다. 브라우저(특히 Chrome)는 파일명을 **디스크에 저장된 형태 그대로** 서버에 보냅니다 — 따로 정규화하지 않습니다. 그래서 NFD로 저장된 맥 파일은 자모가 흩어진 채 서버에 도착합니다.
 
@@ -59,22 +59,20 @@ macOS는 한글 파일명을 자모 단위로 **쪼개서**(NFD, 분해형) 저�
 
 ## <img src="https://api.iconify.design/ph/download-simple-bold.svg?color=%236E7DF2&width=24" width="24" /> 설치
 
-### <img src="https://api.iconify.design/simple-icons/homebrew.svg?color=%236E7DF2&width=20" width="20" /> Homebrew — 권장
-
-```sh
-brew install wonjun-lab/tap/hangul-nfc
-hangul-nfc setup        # Finder 우클릭 메뉴 설치 (처음 한 번)
-```
-
-> 💡 **예전 이름은 `nfd2nfc` 였습니다**(2.0에서 변경 — homebrew/core의 다른 도구와 이름이 겹쳤음). 옮겨 오는 방법은 아래 [nfd2nfc에서 옮겨 오기](#nfd2nfc에서-옮겨-오기) 를 보세요.
-
-### <img src="https://api.iconify.design/ph/terminal-window-bold.svg?color=%236E7DF2&width=20" width="20" /> 한 줄 설치 — Homebrew가 없어도
+### <img src="https://api.iconify.design/ph/terminal-window-bold.svg?color=%236E7DF2&width=20" width="20" /> 한 줄 설치 — 권장
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/wonjun-lab/hangul-nfc/main/install.sh | sh
 ```
 
-Homebrew가 있으면 brew로, 없으면 `~/.local/bin` 에 설치하고 `hangul-nfc setup` 까지 알아서 실행합니다.
+Homebrew가 있으면 brew로, 없으면 `~/.local/bin` 에 설치하고 Finder 우클릭 메뉴까지 한 번에 설치합니다. 예전 이름(`nfd2nfc`)으로 설치했다면 이것만 다시 실행하면 옮겨집니다([자세히](#nfd2nfc에서-옮겨-오기)).
+
+### <img src="https://api.iconify.design/simple-icons/homebrew.svg?color=%236E7DF2&width=20" width="20" /> Homebrew로 직접
+
+```sh
+brew install wonjun-lab/tap/hangul-nfc
+hangul-nfc setup        # Finder 우클릭 메뉴 설치 (처음 한 번)
+```
 
 ### <img src="https://api.iconify.design/ph/cursor-click-bold.svg?color=%236E7DF2&width=20" width="20" /> 터미널 없이 — Finder 메뉴만
 
@@ -82,7 +80,7 @@ Homebrew가 있으면 brew로, 없으면 `~/.local/bin` 에 설치하고 `hangul
 2. 나온 `NFC로 이름 정리.workflow` 를 더블클릭 → *“빠른 동작을 설치하시겠습니까?”* 에서 **설치**.
 3. 끝! 이제 파일·폴더를 우클릭 → **빠른 동작 → NFC로 이름 정리**.
 
-> 더블클릭이 보안으로 막히면 파일을 **우클릭 → 열기** 로 한 번만 실행하세요. 이 방식은 자동 업데이트가 없으니, 새 버전은 zip을 다시 받아 설치하세요.
+> 더블클릭이 보안으로 막히면 **시스템 설정 → 개인정보 보호 및 보안** 맨 아래의 **그래도 열기** 를 누른 뒤 다시 더블클릭하세요(macOS 15 이상 — 14 이하는 파일을 **우클릭 → 열기**). 이 방식은 자동 업데이트가 없으니, 새 버전은 zip을 다시 받아 설치하세요.
 
 ---
 
@@ -113,7 +111,7 @@ hangul-nfc -v 보고서.pdf 자료.xlsx        # 여러 파일 + 변경 내역 �
 | `--notify` | 완료 후 macOS 알림 |
 | `--reveal` | 완료 후 Finder에서 결과 보여주기 |
 | `-q`, `--quiet` | 조용히 실행 (요약 출력 생략, 경고·에러만) |
-| `-f`, `--force` | 이름 충돌 시 덮어쓰기 (기본은 건너뜀) |
+| `-f`, `--force` | 이름 충돌 시 덮어쓰기 — 거의 쓸 일 없음, [아래 참고](#scope) |
 | `--skip` | 이름 충돌 시 건너뛰기 (기본) |
 | `-v`, `--verbose` | 변경 내역을 한 줄씩 출력 |
 | `-V`, `--version` | 버전 출력 |
@@ -132,7 +130,12 @@ hangul-nfc uninstall    # 흔적 없이 제거 (저장소에서 ./uninstall.sh �
 - Finder 메뉴는 설치된 CLI를 호출하므로 **CLI만 업데이트하면 메뉴도 자동으로 최신**입니다. 1.1.x 이하에서 만든 메뉴는 `hangul-nfc setup` 을 한 번 실행하면 이 방식으로 바뀝니다(`doctor` 가 알려 줍니다).
 - `brew uninstall` 만 하면 메뉴·자동 감시가 남습니다. **`hangul-nfc uninstall` 을 쓰세요** — Homebrew 설치본이면 마지막에 `brew uninstall` 까지 해 줍니다.
 
-### nfd2nfc에서 옮겨 오기
+<a id="nfd2nfc에서-옮겨-오기"></a>
+
+<details>
+<summary><b>nfd2nfc에서 옮겨 오기</b> (1.x 사용자만)</summary>
+
+<br>
 
 1.x 때 이름은 `nfd2nfc` 였습니다. homebrew/core에 이름이 같은 다른 도구가 있어 2.0부터 `hangul-nfc` 로 바꿨습니다. 명령 이름만 바뀌고 쓰는 법은 같습니다.
 
@@ -154,6 +157,8 @@ Homebrew 설치본은 새 이름으로 옮기고(`brew migrate`) 최신으로 �
 - 남은 게 있는지는 `hangul-nfc doctor` 가 알려 줍니다(예전 이름의 흔적도 찾아냅니다).
 - 예전 GitHub 주소(`wonjun-lab/nfd2nfc`)는 웹·git 에서 새 주소로 자동 연결됩니다.
 
+</details>
+
 ---
 
 ## <img src="https://api.iconify.design/ph/eye-bold.svg?color=%236E7DF2&width=24" width="24" /> 자동 감시 — 폴더를 알아서 정리
@@ -170,7 +175,7 @@ hangul-nfc watch remove ~/작업                    # 해제
 
 > ⚠️ **다운로드·데스크탑·문서·iCloud Drive·Dropbox/Google Drive(클라우드 저장소)·외장/네트워크 볼륨은 등록할 수 없습니다.** macOS가 이 위치들을 백그라운드 프로그램으로부터 보호하기 때문입니다(개인정보 보호). 서명된 정식 앱이 아닌 도구는 권한 요청 창조차 띄울 수 없어, 등록해도 **조용히 아무 일도 안 일어납니다**(macOS 26에서 실측). 그래서 hangul-nfc는 등록 단계에서 막고 대안을 안내하며, 예전 버전에서 등록해 둔 보호 폴더는 자동으로 해제하고 알립니다. 이런 폴더는 **Finder 우클릭 메뉴**나 **`hangul-nfc ~/Downloads`** 로 정리하세요.
 
-- 등록 폴더는 **하위까지** 정리합니다. 무한루프 없이(idempotent + 10초 간격) 안전하게 동작합니다.
+- 등록 폴더는 **하위까지** 정리합니다. 이미 정상인 이름은 건드리지 않으므로 반복 실행돼도 안전합니다.
 - 즉시 반응하는 건 **등록 폴더 바로 아래**에 생긴 변화입니다(`launchd` 한계). 하위 폴더 안에 새로 생긴 파일은 **1시간마다 도는 전체 점검**에서 정리됩니다.
 - HFS+·exFAT·FAT 볼륨과 SMB(NAS 공유 폴더)의 폴더도 등록할 수 없습니다(아래 **바꾸는 범위** 참고).
 - 정리할 수 없게 된 폴더(권한·볼륨 문제)는 조용히 실패하지 않고 감시에서 빠지며 알림이 뜹니다. 상태는 `hangul-nfc doctor` 로 확인하세요.
@@ -193,6 +198,8 @@ hangul-nfc watch remove ~/작업                    # 해제
 > 💡 **왜 단순 비교가 아니라 inode를 보냐면** — macOS 파일시스템(APFS·HFS+)은 정규형을 구분하지 않아, NFD 파일을 NFC 이름으로 조회해도 “이미 있다”고 나옵니다. 그래서 hangul-nfc는 단순 존재 검사 대신 inode를 비교해, 정말로 다른 파일이 그 이름을 차지한 경우에만 건너뜁니다.
 
 ---
+
+<a id="scope"></a>
 
 ## <img src="https://api.iconify.design/ph/info-bold.svg?color=%236E7DF2&width=24" width="24" /> 바꾸는 범위 — 알아두면 좋은 점
 
@@ -261,67 +268,6 @@ hangul-nfc는 그게 불가능한, **올리는 쪽 사용자**를 위한 처방�
 
 ---
 
-<details>
-<summary><img src="https://api.iconify.design/ph/wrench-bold.svg?color=%236E7DF2&width=18" width="18" /> &nbsp;Quick Action을 직접 만들기 (수동 폴백)</summary>
-
-<br>
-
-`hangul-nfc setup` 이나 zip을 쓸 수 없을 때, Automator로 직접 만들 수 있습니다.
-
-**Automator** → 새 문서 → **빠른 동작** → *받는 입력:* **파일 또는 폴더**, *위치:* **Finder.app** →
-**셸 스크립트 실행** 추가 → *셸:* `/bin/zsh`, *입력 전달:* **인수로** → 아래를 붙여넣고
-이름을 `NFC로 이름 정리` 로 저장합니다.
-
-```sh
-/usr/bin/perl -e 'use strict; use warnings;
-use Unicode::Normalize qw(compose reorder);
-use Encode qw(decode_utf8 encode_utf8);
-my @t;
-sub col {
-  my $p = shift; $p =~ s{/+$}{}; return if $p eq "";
-  push @t, $p;
-  if (-d $p && !-l $p && opendir(my $d, $p)) {
-    my @e = readdir($d); closedir($d);
-    for my $x (@e) { next if $x eq "." || $x eq ".."; col("$p/$x"); }
-  }
-}
-col($_) for @ARGV;
-my ($c, $s, $x, %ok, %bad) = (0, 0, 0);
-for my $p (sort { ($b =~ tr{/}{}) <=> ($a =~ tr{/}{}) } @t) {
-  my $i = rindex($p, "/");
-  my $dir  = $i == -1 ? "" : substr($p, 0, $i + 1);
-  my $base = $i == -1 ? $p : substr($p, $i + 1);
-  my $u = eval { my $cp = $base; decode_utf8($cp, Encode::FB_CROAK) };
-  next unless defined $u;
-  # 쪼개진 자모만 합친다(NFC와 달리 호환 한자 등은 그대로 둔다).
-  my $nb = encode_utf8(compose(reorder($u)));
-  next if $nb eq $base;
-  my $new = $dir . $nb;
-  my @cur = lstat($p);
-  if (@cur && $bad{$cur[0]}) { $x++; next; }
-  # APFS는 정규화 비구분 → NFC 이름도 자기 자신으로 잡힌다.
-  # inode를 비교해 "진짜 다른 파일"이 있을 때만 건너뛴다.
-  my @tgt = lstat($new);
-  if (@tgt && (!@cur || $tgt[0] != $cur[0] || $tgt[1] != $cur[1])) { $s++; next; }
-  next unless rename($p, $new);
-  # HFS+·exFAT·FAT은 이름을 NFD로 되돌린다 → 볼륨마다 첫 변경만 실제로 바뀌었는지 확인.
-  if (!@cur || $ok{$cur[0]}) { $c++; next; }
-  opendir(my $d, $dir eq "" ? "." : $dir) or next;
-  my $hit = grep { $_ eq $nb } readdir($d); closedir($d);
-  if ($hit) { $ok{$cur[0]} = 1; $c++; } else { $bad{$cur[0]} = 1; $x++; }
-}
-my $msg = "이름 정리 완료: ${c}개 변경" . ($s ? ", ${s}개 건너뜀" : "")
-        . ($x ? ", ${x}개 변경 불가(볼륨이 NFD 강제)" : "");
-system("/usr/bin/osascript", "-e",
-       "display notification \"$msg\" with title \"NFC 이름 정리\"");' "$@"
-```
-
-> 배포되는 `hangul-nfc-quick-action.zip` 과 `hangul-nfc setup` 이 만드는 메뉴는 같은 생성기(`hangul-nfc quick-action build`)로 만들어집니다. 설치된 CLI가 있으면 그것을 호출하고, 없으면 내장한 사본으로 실행합니다.
-
-</details>
-
----
-
 ## <img src="https://api.iconify.design/ph/git-pull-request-bold.svg?color=%236E7DF2&width=24" width="24" /> 기여 · 개발
 
 테스트·릴리스 절차는 [CONTRIBUTING.md](CONTRIBUTING.md) 를, 변경 이력은 [CHANGELOG.md](CHANGELOG.md) 를 참고하세요.
@@ -339,17 +285,13 @@ system("/usr/bin/osascript", "-e",
 Zero dependencies; it uses the `perl` that already ships with macOS. The visible
 characters stay the same; only the underlying Unicode form is normalized.
 
-> Formerly **nfd2nfc** (renamed in 2.0 to avoid clashing with an unrelated homebrew/core formula).
-> Migrating: just re-run the one-liner below — it migrates a Homebrew install (`brew migrate`),
-> upgrades it, and runs `hangul-nfc setup` to move the Finder Quick Action, auto-watch folders and
-> settings. A plain `brew upgrade` does **not** migrate it (Homebrew's tap-trust policy skips the
-> renamed formula). Old GitHub URLs redirect on the web and for git, but the old
-> `nfd2nfc update`/`doctor` cannot see 2.0.
+> Formerly **nfd2nfc** (renamed in 2.0). To migrate, re-run the one-liner below — a plain
+> `brew upgrade` does not migrate it.
 
 | Install | How |
 | --- | --- |
-| <img src="https://api.iconify.design/simple-icons/homebrew.svg?color=%236E7DF2&width=18" width="18" align="center" /> Homebrew (recommended) | `brew install wonjun-lab/tap/hangul-nfc && hangul-nfc setup` |
-| <img src="https://api.iconify.design/ph/terminal-window-bold.svg?color=%236E7DF2&width=18" width="18" align="center" /> One-liner (no Homebrew needed) | `curl -fsSL https://raw.githubusercontent.com/wonjun-lab/hangul-nfc/main/install.sh \| sh` |
+| <img src="https://api.iconify.design/ph/terminal-window-bold.svg?color=%236E7DF2&width=18" width="18" align="center" /> One-liner (recommended — uses Homebrew if present, installs the Finder Quick Action) | `curl -fsSL https://raw.githubusercontent.com/wonjun-lab/hangul-nfc/main/install.sh \| sh` |
+| <img src="https://api.iconify.design/simple-icons/homebrew.svg?color=%236E7DF2&width=18" width="18" align="center" /> Homebrew | `brew install wonjun-lab/tap/hangul-nfc && hangul-nfc setup` |
 | <img src="https://api.iconify.design/ph/cursor-click-bold.svg?color=%236E7DF2&width=18" width="18" align="center" /> Finder only (no terminal) | Download `hangul-nfc-quick-action.zip` from [Releases](https://github.com/wonjun-lab/hangul-nfc/releases/latest), unzip, double-click `NFC로 이름 정리.workflow` |
 
 ```
