@@ -6,6 +6,12 @@
 
 ## [Unreleased]
 
+## [2.0.3] - 2026-10-01
+
+### Fixed
+- **Finder 우클릭 → 빠른 동작에 메뉴가 안 보이던 문제** — `setup`·릴리스 zip이 만든 메뉴에 대상 앱(Finder)이 비어 있었다. Automator에서 "위치: Finder.app"으로 만든 것과 같게 대상·아이콘을 넣었다. (그동안 Automator 엔진 실행으로만 검증해 놓쳤다.)
+- 이미 설치한 메뉴는 `hangul-nfc setup`을 한 번 다시 실행하면 고쳐진다. `doctor`가 예전 형식을 찾아 안내한다.
+
 ## [2.0.2] - 2026-10-01
 
 ### Changed — 안내 문구
@@ -126,6 +132,7 @@
 - `install.sh` BIN_DIR 선택의 도달 불가능한 `elif` 죽은 코드 정리.
 - README 영문 사용법 한 줄에 누락됐던 `--reveal`/`-h` 추가.
 
+[2.0.3]: https://github.com/wonjun-lab/hangul-nfc/releases/tag/v2.0.3
 [2.0.2]: https://github.com/wonjun-lab/hangul-nfc/releases/tag/v2.0.2
 [2.0.1]: https://github.com/wonjun-lab/hangul-nfc/releases/tag/v2.0.1
 [2.0.0]: https://github.com/wonjun-lab/hangul-nfc/releases/tag/v2.0.0
