@@ -278,7 +278,10 @@ if echo "$wout" | grep -q "watch" && [ "$wrc" -ne 0 ]; then ok "watch usage(잘�
 
 # [w2] add → list 절대경로 dedup, remove로 제거
 WH="$TMP/home"; rm -rf "$WH"; mkdir -p "$WH" "$TMP/wf1" "$TMP/wf2"
-HOME="$WH" HANGUL_NFC_WATCH_NO_LAUNCHCTL=1 /usr/bin/perl "$HANGUL_NFC" watch add "$TMP/wf1" "$TMP/wf1" "$TMP/wf2" >/dev/null 2>&1
+wa1=$(HOME="$WH" HANGUL_NFC_WATCH_NO_LAUNCHCTL=1 /usr/bin/perl "$HANGUL_NFC" watch add "$TMP/wf1" "$TMP/wf1" 2>/dev/null)
+wa2=$(HOME="$WH" HANGUL_NFC_WATCH_NO_LAUNCHCTL=1 /usr/bin/perl "$HANGUL_NFC" watch add "$TMP/wf2" 2>/dev/null)
+# 첫 등록에만 macOS '백그라운드 활동' 알림을 미리 안내한다.
+if echo "$wa1" | grep -q "백그라운드에서 실행될 수 있습니다" && ! echo "$wa2" | grep -q "백그라운드"; then ok "watch add: 첫 등록에만 백그라운드 알림 안내"; else ng "백그라운드 안내 이상: [$wa1] [$wa2]"; fi
 n=$(HOME="$WH" /usr/bin/perl "$HANGUL_NFC" watch list 2>/dev/null | grep -c "$TMP/wf")
 HOME="$WH" HANGUL_NFC_WATCH_NO_LAUNCHCTL=1 /usr/bin/perl "$HANGUL_NFC" watch remove "$TMP/wf1" >/dev/null 2>&1
 n2=$(HOME="$WH" /usr/bin/perl "$HANGUL_NFC" watch list 2>/dev/null | grep -c "$TMP/wf")

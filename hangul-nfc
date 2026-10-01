@@ -35,7 +35,7 @@ use Unicode::Normalize qw(NFC compose reorder);
 use Encode qw(decode_utf8 encode_utf8);
 use Getopt::Long qw(GetOptions);
 
-our $VERSION = "2.0.1";
+our $VERSION = "2.0.2";
 
 # 분리된 자모 등 결합 가능한 문자열만 합친다(= NFC에서 '분해' 단계를 뺀 것).
 # NFC는 호환 한자(U+F900~, 예: 樂 U+F914)나 Ω(U+2126) 같은 singleton까지 다른 코드포인트로
@@ -328,8 +328,12 @@ print "$summary\n" unless $quiet;
 # 테스트·CI(헤드리스)에서 Finder/알림 부작용·AppleEvent 타임아웃을 피하기 위함.
 my $no_gui = $ENV{HANGUL_NFC_NO_GUI};
 if ($notify && !$dry && !$no_gui) {
+    # 알림은 Finder 메뉴 사용자가 보는 유일한 결과라 "완료: 0개 변경" 대신 뜻을 풀어 쓴다.
+    # (표준출력 요약은 watch가 파싱하므로 그대로 둔다.)
     my $msg = $summary;
-    $msg =~ s/"/\\"/g;
+    $msg = '바꿀 이름이 없습니다 — 이미 모두 정상(NFC)입니다'
+        if !$changed && !$skipped && !$unsupported && !$missing;
+    $msg =~ s/\\/\\\\/g; $msg =~ s/"/\\"/g;
     system('/usr/bin/osascript', '-e',
            qq{display notification "$msg" with title "NFC 이름 정리"});
 }
@@ -639,12 +643,15 @@ sub watch_add {
         push @new, $abs;
     }
     return 1 unless @new;
+    my $first = !-f watch_plist_file();
     my %seen; my @dirs = grep { !$seen{$_}++ } (watch_read_list(), @new);
     watch_write_list(@dirs);
     watch_write_plist();
     watch_load();
     watch_report("add", $total, scalar @new);
     print "감시 등록: ", join(", ", @new), "\n";
+    print "참고: macOS가 \"'hangul-nfc' 앱은 백그라운드에서 실행될 수 있습니다\" 알림을 띄웁니다 — 자동 감시가 켜졌다는 뜻이니 그대로 두세요(끄기: hangul-nfc watch off)\n"
+        if $first;
     return 0;
 }
 sub watch_remove {
