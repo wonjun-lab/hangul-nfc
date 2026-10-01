@@ -6,6 +6,14 @@
 
 ## [Unreleased]
 
+## [2.0.2] - 2026-10-01
+
+### Changed — 안내 문구
+- Finder 메뉴(`--notify`)로 정리했는데 바꿀 이름이 없으면 알림이 "완료: 0개 변경" 대신 "바꿀 이름이 없습니다 — 이미 모두 정상(NFC)입니다"로 뜬다. 터미널 출력 요약은 그대로.
+- `watch add`로 처음 등록하면 macOS가 띄우는 "백그라운드에서 실행될 수 있습니다" 알림을 미리 안내한다(실측: 첫 등록 시 뜸).
+- README: 터미널 없이(zip) 설치한 Finder 메뉴를 지우는 방법 추가.
+- 큰 폴더용 진행 표시는 넣지 않았다 — 파일 2만 개(폴더 50개) 정리가 1초에 끝나 필요가 없었다(실측).
+
 ## [2.0.1] - 2026-10-01
 
 ### Fixed — Homebrew 이전 경로
@@ -118,6 +126,7 @@
 - `install.sh` BIN_DIR 선택의 도달 불가능한 `elif` 죽은 코드 정리.
 - README 영문 사용법 한 줄에 누락됐던 `--reveal`/`-h` 추가.
 
+[2.0.2]: https://github.com/wonjun-lab/hangul-nfc/releases/tag/v2.0.2
 [2.0.1]: https://github.com/wonjun-lab/hangul-nfc/releases/tag/v2.0.1
 [2.0.0]: https://github.com/wonjun-lab/hangul-nfc/releases/tag/v2.0.0
 [1.2.0]: https://github.com/wonjun-lab/hangul-nfc/releases/tag/v1.2.0
