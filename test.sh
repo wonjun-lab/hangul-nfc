@@ -380,6 +380,18 @@ if [ "$d1" -eq 0 ] && [ "$d2" -ne 0 ] && echo "$d2o" | grep -q "hangul-nfc updat
     ok "doctor: 정상 0 · 새 버전/예전 메뉴는 조치 안내 + 비0"
 else ng "doctor 이상: $d1/$d2/$d3"; fi
 
+# [u4b] 메뉴는 Finder 대상이어야 '빠른 동작'에 뜬다. 2.0.2 이하 형식(대상 없음)은 doctor가 잡는다.
+WH="$TMP/uhome"; rm -rf "$WH"; mkdir -p "$WH"
+HOME="$WH" /usr/bin/perl "$HANGUL_NFC" setup >/dev/null 2>&1
+QI="$WH/Library/Services/NFC로 이름 정리.workflow/Contents/Info.plist"
+ctx=$(/usr/bin/plutil -extract "NSServices.0.NSRequiredContext.NSApplicationIdentifier" raw -o - "$QI" 2>/dev/null)
+wctx=$(/usr/bin/plutil -extract "workflowMetaData.serviceApplicationBundleID" raw -o - "${QI%Info.plist}document.wflow" 2>/dev/null)
+/usr/bin/plutil -remove "NSServices.0.NSRequiredContext" "$QI"
+d4o=$(HOME="$WH" /usr/bin/perl "$HANGUL_NFC" doctor 2>&1); d4=$?
+if [ "$ctx" = "com.apple.finder" ] && [ "$wctx" = "com.apple.finder" ] && [ "$d4" -ne 0 ] && echo "$d4o" | grep -q "빠른 동작"; then
+    ok "setup: 메뉴를 Finder 대상으로 생성 · 예전 형식은 doctor가 안내"
+else ng "Finder 대상 메뉴 이상: ctx=$ctx wctx=$wctx d4=$d4"; fi
+
 # [u5] update(직접 설치본): 받은 파일을 검증해 교체, 깨진 파일이면 원본 유지
 WH="$TMP/uhome"; rm -rf "$WH"; mkdir -p "$WH/.local/bin" "$TMP/uup"
 cp "$HANGUL_NFC" "$WH/.local/bin/hangul-nfc"; chmod +x "$WH/.local/bin/hangul-nfc"
