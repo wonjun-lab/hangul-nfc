@@ -18,6 +18,9 @@ main() {
 REPO=wonjun-lab/hangul-nfc
 MARK='^# hangul-nfc — macOS 한글 파일명'
 LEGACY_MARK='^# nfd2nfc — macOS 한글 파일명'   # 1.x 때 이름(nfd2nfc) 설치본 식별
+PATH_MARK_BEGIN='# >>> hangul-nfc PATH >>>'     # ~/.zprofile 블록 표식 — hangul-nfc의 path_mark_begin/end와 같아야 한다
+PATH_MARK_END='# <<< hangul-nfc PATH <<<'
+NEED_NEW_WINDOW=0
 # curl | sh 로 실행되면 $0은 "sh"라 파일이 아니다 — 그때는 저장소 사본을 찾지 않는다(현재 폴더의 옛 사본 오인 방지).
 HERE=""
 if [ -f "$0" ]; then HERE=$(cd "$(dirname "$0")" && pwd); fi
@@ -79,12 +82,26 @@ else
         curl -fsSL -m 30 -o "$SRC" "https://raw.githubusercontent.com/$REPO/$TAG/hangul-nfc"
         grep -q "$MARK" "$SRC" || { echo "오류: 받은 파일이 hangul-nfc가 아닙니다" >&2; exit 1; }
     fi
-    # Homebrew 경로에는 쓰지 않는다(brew와 충돌). 사용자 영역에 두고 PATH는 setup이 안내한다.
+    # Homebrew 경로에는 쓰지 않는다(brew와 충돌). 사용자 영역에 둔다.
     BIN="$HOME/.local/bin"
     mkdir -p "$BIN"
     install -m 0755 "$SRC" "$BIN/hangul-nfc"
     CLI="$BIN/hangul-nfc"
     echo "  ✓ CLI 설치: $CLI"
+    # macOS 기본 PATH엔 ~/.local/bin이 없어 'hangul-nfc'를 못 찾는다. ~/.zprofile에 표식으로 감싼 블록을
+    # 한 번만 더한다(다시 실행해도 중복 없음). 제거(hangul-nfc uninstall)가 이 블록만 지운다.
+    case ":$PATH:" in
+        *":$BIN:"*) ;;
+        *)
+            PROFILE="$HOME/.zprofile"
+            if ! grep -qF "$PATH_MARK_BEGIN" "$PROFILE" 2>/dev/null; then
+                # shellcheck disable=SC2016  # $HOME·$PATH는 로그인할 때 펼쳐지도록 그대로 적는다
+                printf '\n%s\nexport PATH="$HOME/.local/bin:$PATH"\n%s\n' "$PATH_MARK_BEGIN" "$PATH_MARK_END" >> "$PROFILE"
+                echo "  ✓ PATH 설정 추가: ~/.zprofile"
+            fi
+            NEED_NEW_WINDOW=1
+            ;;
+    esac
 fi
 
 echo
@@ -94,6 +111,12 @@ if grep -q "^sub setup_main" "$CLI" 2>/dev/null; then
 else
     echo "CLI는 설치됐지만 이 버전($("$CLI" --version))은 Finder 메뉴 자동 설치(setup)를 지원하지 않습니다."
     echo "  잠시 뒤 다시 실행하거나, Releases의 hangul-nfc-quick-action.zip 으로 메뉴를 설치하세요."
+fi
+# 마지막 줄로 다시 알린다 — 이 창은 PATH가 바뀌기 전이라 'hangul-nfc'를 아직 못 찾는다.
+if [ "$NEED_NEW_WINDOW" = 1 ]; then
+    echo
+    echo "! 'hangul-nfc' 명령은 새 터미널 창부터 쓸 수 있습니다(~/.zprofile에 PATH 추가됨)."
+    echo "  지금 이 창에서는 전체 경로로 실행하세요: $CLI"
 fi
 }
 

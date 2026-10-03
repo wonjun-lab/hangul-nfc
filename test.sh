@@ -221,7 +221,7 @@ print(raw.hex())' "$1"; }
 before16=$(entry_bytes "$D16"); md5b16=$(md5 -q "$D16"/*.zip)
 /usr/bin/perl "$HANGUL_NFC" -q "$D16"
 after16=$(entry_bytes "$D16"); md5a16=$(md5 -q "$D16"/*.zip)
-if [ "$before16" = "$after16" ] && [ "$md5b16" = "$md5a16" ]; then ok "압축 내부 엔트리명·내용 불변(스코프 밖)"; else ng "압축 내부 변함: name $before16→$after16"; fi
+if [ "$before16" = "$after16" ] && [ "$md5b16" = "$md5a16" ]; then ok "압축 내부 엔트리명·내용 불변(스코프 밖)"; else ng "압축 내부 변함: name ${before16}→${after16}"; fi
 
 # [17] 호환 한자(U+F914 樂)·기호(U+2126 Ω)는 그대로 두고 분리된 한글 자모만 결합한다.
 #      NFC는 이들을 통합 한자(U+6A02)·그리스 문자(U+03A9)로 바꿔 '보이는 글자'를 바꾼다.
@@ -268,6 +268,73 @@ if hdiutil create -quiet -size 8m -fs HFS+ -volname nfdtest "$HFS_IMG" >/dev/nul
 else
     printf '  - HFS+ 이미지 생성/마운트 불가 — [18] 건너뜀\n'
 fi
+
+# NFD 파일 만들기(폴더 안) / NFC·NFD 철자 출력
+mkfile_nfd() { /usr/bin/perl -e 'use Unicode::Normalize qw(NFD);use Encode qw(encode_utf8 decode_utf8);open(my$f,">",$ARGV[0]."/".encode_utf8(NFD(decode_utf8($ARGV[1])))) or die "$!";close$f;' "$1" "$2"; }
+mkdir_nfd() { /usr/bin/perl -e 'use Unicode::Normalize qw(NFD);use Encode qw(encode_utf8 decode_utf8);mkdir($ARGV[0]."/".encode_utf8(NFD(decode_utf8($ARGV[1])))) or die "$!";' "$1" "$2"; }
+nfd_of() { /usr/bin/perl -e 'use Unicode::Normalize qw(NFD);use Encode qw(encode_utf8 decode_utf8);print encode_utf8(NFD(decode_utf8($ARGV[0])))' "$1"; }
+
+# [19] 패키지(.app·Info.plist 번들)와 ~/Library는 상위 폴더를 정리할 때 안으로 들어가지 않는다(이름만 정리).
+#      ~/Library를 직접 지정하면 정리하고, 패키지를 직접 지정해도 이름만 정리한다.
+P19="$TMP/t19"; H19="$P19/home"; mkdir -p "$H19/Library"
+mkdir_nfd "$H19/Library" "설정"; mkfile_nfd "$H19/Library/설정" "앱데이터.plist"
+mkdir_nfd "$H19" "계산기.app"; mkdir -p "$H19/계산기.app/Contents"; mkfile_nfd "$H19/계산기.app/Contents" "리소스.txt"
+mkdir_nfd "$H19" "문서.abc"; mkdir -p "$H19/문서.abc/Contents"; : > "$H19/문서.abc/Contents/Info.plist"; mkfile_nfd "$H19/문서.abc" "속.txt"
+mkfile_nfd "$H19" "보통.txt"
+out19=$(HOME="$H19" /usr/bin/perl "$HANGUL_NFC" -v "$H19" 2>&1)
+lib_left=$(count_nfd "$H19/Library"); app_in=$(count_nfd "$H19/계산기.app"); abc_in=$(count_nfd "$H19/문서.abc")
+if is_nfc_base "$(ls -d "$H19"/*.app)" && is_nfc_base "$(ls -d "$H19"/*.abc)" && [ "$app_in" -eq 1 ] && [ "$abc_in" -eq 1 ] && [ "$lib_left" -eq 2 ] \
+   && is_nfc_base "$(ls "$H19"/*.txt)" && echo "$out19" | grep -q "패키지 내부는 건드리지 않음" && echo "$out19" | grep -q "Library 내부는 건드리지 않음"; then
+    HOME="$H19" /usr/bin/perl "$HANGUL_NFC" -q "$H19/Library"
+    mkdir_nfd "$P19" "도구.app"; mkfile_nfd "$P19/도구.app" "안.txt"
+    /usr/bin/perl "$HANGUL_NFC" -q "$P19/$(nfd_of 도구.app)"
+    if [ "$(count_nfd "$H19/Library")" -eq 0 ] && is_nfc_base "$(ls -d "$P19"/*.app)" && [ "$(count_nfd "$P19/도구.app")" -eq 1 ]; then
+        ok "패키지·~/Library 내부는 하위 탐색에서 제외(이름만 정리), 직접 지정한 ~/Library는 정리"
+    else ng "직접 지정한 ~/Library·패키지 처리 이상: lib=$(count_nfd "$H19/Library")"; fi
+else ng "패키지·~/Library 제외 이상: lib=$lib_left app=$app_in abc=$abc_in out=[$out19]"; fi
+
+# [20] 열 수 없는 폴더·없는 경로도 요약에 나온다(앞머리 '완료: N개 변경'은 watch가 파싱하므로 유지)
+D20="$TMP/t20"; mkdir -p "$D20/잠김"; mkfile_nfd "$D20" "자료.txt"; chmod 000 "$D20/잠김"
+o20n=$(/usr/bin/perl "$HANGUL_NFC" -n "$D20" "$TMP/없는_20" 2>/dev/null | tail -n 1)
+o20=$(/usr/bin/perl "$HANGUL_NFC" "$D20" 2>/dev/null); rc20=$?
+chmod 755 "$D20/잠김"
+if [ "$o20n" = "미리보기: 1개 변경 예정, 2개 열 수 없음" ] && [ "$o20" = "완료: 1개 변경, 1개 열 수 없음" ] && [ "$rc20" -ne 0 ]; then
+    ok "요약: 열 수 없는 폴더·없는 경로 개수 표시(미리보기·실제)"
+else ng "열 수 없음 요약 이상: [$o20n] [$o20] rc=$rc20"; fi
+
+# [21] 끝에 슬래시를 붙인 폴더 심링크(link/)는 따라가 대상을 정리하고, 슬래시 없이 주면 링크 이름만 정리한다
+D21="$TMP/t21"; mkdir -p "$D21"; mkdir_nfd "$D21" "실제"; mkfile_nfd "$D21/$(nfd_of 실제)" "안.txt"
+ln -s "$D21/$(nfd_of 실제)" "$D21/$(nfd_of 링크)"
+/usr/bin/perl "$HANGUL_NFC" -q "$D21/$(nfd_of 링크)/"
+in21=$(count_nfd "$D21/실제"); link21=$(is_nfc_base "$(find "$D21" -type l)" && echo nfc || echo nfd)
+mkfile_nfd "$D21/실제" "둘.txt"
+/usr/bin/perl "$HANGUL_NFC" -q "$D21/링크"
+in21b=$(count_nfd "$D21/실제"); link21b=$(is_nfc_base "$(find "$D21" -type l)" && echo nfc || echo nfd)
+if [ "$in21" -eq 0 ] && [ "$link21" = nfd ] && [ "$in21b" -eq 1 ] && [ "$link21b" = nfc ] && [ -L "$D21/링크" ]; then
+    ok "심링크 인자: 'link/'는 대상 폴더 정리, 'link'는 링크 이름만"
+else ng "심링크 인자 처리 이상: 슬래시=($in21,$link21) 없음=($in21b,$link21b)"; fi
+
+# [22] 같은 항목을 다르게 적은 인자(T/ T/. ./T \$PWD/T)는 한 번만 센다
+D22="$TMP/t22"; mkdir -p "$D22/T"; mkfile_nfd "$D22/T" "문서.txt"
+o22=$(cd "$D22" && /usr/bin/perl "$HANGUL_NFC" -n T/ T/. ./T "$D22/T" 2>&1 | tail -n 1)
+if [ "$o22" = "미리보기: 1개 변경 예정" ]; then ok "같은 항목의 다른 표기(T/ · T/. · ./T · 절대경로) 중복 처리 없음"; else ng "다른 표기 중복 처리: $o22"; fi
+
+# [23] 같은 폴더의 파일 수천 개를 인자로 줘도 빠르다(예전엔 인자마다 폴더 전체를 읽어 O(n²) — 3000개에 7초)
+D23="$TMP/t23"; mkdir -p "$D23"
+/usr/bin/perl -e 'use utf8;use Unicode::Normalize qw(NFD);use Encode qw(encode_utf8);for(1..3000){open(my$f,">",$ARGV[0]."/".encode_utf8(NFD("자료$_.txt")))or die;close$f}' "$D23"
+now() { /usr/bin/perl -MTime::HiRes=time -e 'printf "%.2f", time'; }
+s23=$(now); o23=$(/usr/bin/perl "$HANGUL_NFC" "$D23"/* 2>&1 | tail -n 1); e23=$(now)
+secs23=$(/usr/bin/perl -e 'printf "%.2f", $ARGV[1] - $ARGV[0]' "$s23" "$e23")
+if [ "$o23" = "완료: 3000개 변경" ] && /usr/bin/perl -e 'exit($ARGV[0] < 3 ? 0 : 1)' "$secs23"; then ok "파일 3000개 인자: ${secs23}초(폴더 목록 캐시)"; else ng "파일 3000개 인자 처리 이상/느림: ${secs23}초 [$o23]"; fi
+
+# [24] 미리보기·-v 출력은 바꾸기 전 이름의 분리된 자모를 호환 자모로 보여 준다(터미널이 NFD를 합쳐 그려 구분이 안 됨)
+D24="$TMP/t24"; mkdir -p "$D24"; mkfile_nfd "$D24" "자료.pdf"; mkfile_nfd "$D24" "한글.txt"
+o24n=$(/usr/bin/perl "$HANGUL_NFC" -n "$D24" 2>&1)
+o24v=$(/usr/bin/perl "$HANGUL_NFC" -v "$D24" 2>&1)
+if echo "$o24n" | grep -qxF "[미리보기] $D24/ㅈㅏㄹㅛ.pdf  →  $D24/자료.pdf" && echo "$o24n" | grep -qF "/ㅎㅏㄴㄱㅡㄹ.txt  →  " \
+   && echo "$o24v" | grep -qxF "변경: $D24/ㅈㅏㄹㅛ.pdf  →  $D24/자료.pdf" && [ "$(count_nfd "$D24")" -eq 0 ]; then
+    ok "미리보기·-v: 바꾸기 전 이름을 호환 자모로 표시(ㅈㅏㄹㅛ.pdf → 자료.pdf)"
+else ng "자모 표시 이상: [$o24n] [$o24v]"; fi
 
 # ── watch(자동 감시) 케이스 — HOME=$TMP/home 격리, launchctl은 환경변수로 건너뜀 ──
 mknfd_in() { /usr/bin/perl -e 'use utf8;use Unicode::Normalize qw(NFD);use Encode qw(encode_utf8);open(my$f,">",$ARGV[0]."/".encode_utf8(NFD($ARGV[1])));close$f;' "$1" "$2"; }
@@ -328,6 +395,76 @@ rm -rf "$GB"
 mknfd_in "$GA" "새.txt"
 HOME="$WH" HANGUL_NFC_NO_GUI=1 HANGUL_NFC_WATCH_NO_LAUNCHCTL=1 /usr/bin/perl "$HANGUL_NFC" watch __run >/dev/null 2>&1; rcrun=$?
 if [ "$rcrun" -eq 0 ] && [ "$(count_nfd "$GA")" -eq 0 ]; then ok "watch __run 미존재 폴더 견고성"; else ng "watch __run 견고성 이상: rc=$rcrun"; fi
+# 사라진 폴더는 감시에서 자동으로 빼고 기록한다. doctor는 그 전까지 지금 빼는 명령을 함께 보여 준다.
+WH="$TMP/home"; rm -rf "$WH"; mkdir -p "$WH"; GC="$TMP/wg3"; GD="$TMP/wg4"; mkdir -p "$GC" "$GD"
+HOME="$WH" HANGUL_NFC_NO_GUI=1 HANGUL_NFC_WATCH_NO_LAUNCHCTL=1 /usr/bin/perl "$HANGUL_NFC" watch add "$GC" "$GD" >/dev/null 2>&1
+rm -rf "$GD"
+dg=$(HOME="$WH" HANGUL_NFC_WATCH_NO_LAUNCHCTL=1 HANGUL_NFC_NO_NETWORK=1 /usr/bin/perl "$HANGUL_NFC" doctor 2>&1)
+HOME="$WH" HANGUL_NFC_NO_GUI=1 HANGUL_NFC_WATCH_NO_LAUNCHCTL=1 /usr/bin/perl "$HANGUL_NFC" watch __run >/dev/null 2>&1
+ng6=$(HOME="$WH" /usr/bin/perl "$HANGUL_NFC" watch list 2>/dev/null | grep -c '•')
+if echo "$dg" | grep -q "✗ 폴더 없음" && echo "$dg" | grep -q "hangul-nfc watch remove '.*wg4'" && [ "$ng6" -eq 1 ] \
+   && grep -q "자동 해제(폴더 없음): .*wg4" "$WH/Library/Logs/hangul-nfc-watch.log" && ! grep -q wg4 "$WH/Library/LaunchAgents/com.wonjun-lab.hangul-nfc.watch.plist"; then
+    ok "watch: 사라진 폴더는 __run이 자동 해제·기록(plist 갱신), doctor는 빼는 명령 안내"
+else ng "사라진 폴더 처리 이상: 목록=$ng6 doctor=[$dg]"; fi
+
+# [w7] watch off는 plist까지 지워 다음 로그인에 저절로 켜지지 않는다. 목록은 남고 doctor가 켜는 명령을 안내, on이 되살린다.
+WH="$TMP/home"; rm -rf "$WH"; mkdir -p "$WH" "$TMP/wo2"
+PLW="$WH/Library/LaunchAgents/com.wonjun-lab.hangul-nfc.watch.plist"
+HOME="$WH" HANGUL_NFC_WATCH_NO_LAUNCHCTL=1 /usr/bin/perl "$HANGUL_NFC" watch add "$TMP/wo2" >/dev/null 2>&1
+HOME="$WH" HANGUL_NFC_WATCH_NO_LAUNCHCTL=1 /usr/bin/perl "$HANGUL_NFC" watch off >/dev/null 2>&1
+off_pl=$([ -f "$PLW" ] && echo 있음 || echo 없음)
+do7=$(HOME="$WH" HANGUL_NFC_WATCH_NO_LAUNCHCTL=1 HANGUL_NFC_NO_NETWORK=1 /usr/bin/perl "$HANGUL_NFC" doctor 2>&1)
+HOME="$WH" HANGUL_NFC_WATCH_NO_LAUNCHCTL=1 /usr/bin/perl "$HANGUL_NFC" watch on >/dev/null 2>&1
+if [ "$off_pl" = 없음 ] && echo "$do7" | grep -q "자동 감시: 중지 · 폴더 1개 → hangul-nfc watch on" && [ -f "$PLW" ] && grep -q "$TMP/wo2" "$PLW"; then
+    ok "watch off: plist 제거(재로그인 시 재활성 방지) · doctor '중지 → watch on' · on으로 복구"
+else ng "watch off/on 이상: off후 plist=$off_pl doctor=[$do7]"; fi
+
+# [w8] 루트(/)와 데이터 볼륨 펌링크(/System/Volumes/Data/…) 경로로도 보호 폴더를 등록할 수 없다.
+#      안전장치: 판정이 깨져도 실제로 /를 정리하지 않게 정리 단계를 가짜로 바꾼 사본으로 실행한다.
+STUB="$TMP/hangul-nfc-stubclean"
+sed 's/^sub watch_clean_dir {$/sub watch_clean_dir { return "완료: 0개 변경\\n";/' "$HANGUL_NFC" > "$STUB"; chmod +x "$STUB"
+WH="$TMP/home"; rm -rf "$WH"; mkdir -p "$WH/Downloads"; RWH=$(cd "$WH" && pwd -P)
+if grep -q '^sub watch_clean_dir { return' "$STUB"; then
+    e8=$(HOME="$WH" HANGUL_NFC_NO_GUI=1 HANGUL_NFC_WATCH_NO_LAUNCHCTL=1 "$STUB" watch add / 2>&1); r8a=$?
+    HOME="$WH" HANGUL_NFC_NO_GUI=1 HANGUL_NFC_WATCH_NO_LAUNCHCTL=1 "$STUB" watch add /System/Volumes/Data >/dev/null 2>&1; r8b=$?
+    HOME="$WH" HANGUL_NFC_NO_GUI=1 HANGUL_NFC_WATCH_NO_LAUNCHCTL=1 "$STUB" watch add "/System/Volumes/Data$RWH/Downloads" >/dev/null 2>&1; r8c=$?
+    n8=$(HOME="$WH" /usr/bin/perl "$HANGUL_NFC" watch list 2>/dev/null | grep -c '•')
+    if [ "$r8a" -ne 0 ] && [ "$r8b" -ne 0 ] && [ "$r8c" -ne 0 ] && [ "$n8" -eq 0 ] && echo "$e8" | grep -q "상위 폴더"; then
+        ok "watch add: 루트(/)·/System/Volumes/Data 펌링크 경로의 보호 폴더 거부"
+    else ng "루트/펌링크 보호 이상: rc=$r8a/$r8b/$r8c n=$n8"; fi
+else ng "[w8] 정리 단계 스텁 생성 실패(watch_clean_dir 정의 형식 변경?)"; fi
+
+# [w9] 같은 폴더의 NFD·NFC 철자는 한 항목, 어느 철자로든 remove 된다. 등록 안 된 폴더 remove·인자 없는 add는 비0.
+WH="$TMP/home"; rm -rf "$WH"; mkdir -p "$WH" "$TMP/w9"; mkdir_nfd "$TMP/w9" "감시폴더"
+W9D="$TMP/w9/$(nfd_of 감시폴더)"; W9C="$TMP/w9/감시폴더"
+HOME="$WH" HANGUL_NFC_WATCH_NO_LAUNCHCTL=1 /usr/bin/perl "$HANGUL_NFC" watch add "$W9D" >/dev/null 2>&1
+HOME="$WH" HANGUL_NFC_WATCH_NO_LAUNCHCTL=1 /usr/bin/perl "$HANGUL_NFC" watch add "$W9C" >/dev/null 2>&1
+n9=$(HOME="$WH" /usr/bin/perl "$HANGUL_NFC" watch list 2>/dev/null | grep -c '•')
+e9=$(HOME="$WH" HANGUL_NFC_WATCH_NO_LAUNCHCTL=1 /usr/bin/perl "$HANGUL_NFC" watch remove "$TMP/wf_none" 2>&1); r9a=$?
+HOME="$WH" HANGUL_NFC_WATCH_NO_LAUNCHCTL=1 /usr/bin/perl "$HANGUL_NFC" watch remove "$W9D" >/dev/null 2>&1; r9b=$?
+n9b=$(HOME="$WH" /usr/bin/perl "$HANGUL_NFC" watch list 2>/dev/null | grep -c '•')
+u9=$(HOME="$WH" HANGUL_NFC_WATCH_NO_LAUNCHCTL=1 /usr/bin/perl "$HANGUL_NFC" watch add 2>&1); r9c=$?
+if [ "$n9" -eq 1 ] && [ "$r9a" -ne 0 ] && echo "$e9" | grep -q "등록되지 않은 폴더" && [ "$r9b" -eq 0 ] && [ "$n9b" -eq 0 ] \
+   && [ "$r9c" -ne 0 ] && echo "$u9" | grep -q "사용법: hangul-nfc watch add"; then
+    ok "watch: NFD/NFC 철자 한 항목·어느 철자로든 remove, 미등록 remove·빈 add는 비0"
+else ng "watch 목록 정규화 이상: n=${n9}→${n9b} remove미등록=$r9a remove=$r9b 빈add=$r9c"; fi
+
+# [w10] 이름이 공백으로 끝나는 폴더도 감시된다(목록을 읽을 때 끝 공백까지 지우던 문제)
+WH="$TMP/home"; rm -rf "$WH"; mkdir -p "$WH" "$TMP/w10/끝공백 "
+HOME="$WH" HANGUL_NFC_NO_GUI=1 HANGUL_NFC_WATCH_NO_LAUNCHCTL=1 /usr/bin/perl "$HANGUL_NFC" watch add "$TMP/w10/끝공백 " >/dev/null 2>&1
+mknfd_in "$TMP/w10/끝공백 " "새파일.txt"
+HOME="$WH" HANGUL_NFC_NO_GUI=1 HANGUL_NFC_WATCH_NO_LAUNCHCTL=1 /usr/bin/perl "$HANGUL_NFC" watch __run >/dev/null 2>&1
+n10=$(HOME="$WH" /usr/bin/perl "$HANGUL_NFC" watch list 2>/dev/null | grep -c '끝공백 $')
+if [ "$(count_nfd "$TMP/w10")" -eq 0 ] && [ "$n10" -eq 1 ]; then ok "watch: 이름이 공백으로 끝나는 폴더 감시"; else ng "끝 공백 폴더 감시 이상: 목록=$n10 NFD=$(count_nfd "$TMP/w10")"; fi
+
+# [w11] 처음 정리를 실행하지 못하면(실행 권한 없음 등) 등록 성공이라 하지 않는다
+WH="$TMP/home"; rm -rf "$WH"; mkdir -p "$WH" "$TMP/w11/bin" "$TMP/w11/d"
+cp "$HANGUL_NFC" "$TMP/w11/bin/hangul-nfc"; chmod 644 "$TMP/w11/bin/hangul-nfc"
+e11=$(HOME="$WH" HANGUL_NFC_NO_GUI=1 HANGUL_NFC_WATCH_NO_LAUNCHCTL=1 /usr/bin/perl "$TMP/w11/bin/hangul-nfc" watch add "$TMP/w11/d" 2>&1); r11=$?
+if [ "$r11" -ne 0 ] && echo "$e11" | grep -q "처음 정리를 실행하지 못했습니다" && ! echo "$e11" | grep -q "감시 등록:" \
+   && [ ! -f "$WH/Library/LaunchAgents/com.wonjun-lab.hangul-nfc.watch.plist" ]; then
+    ok "watch add: 처음 정리 실행 실패 시 등록하지 않고 오류·비0"
+else ng "watch add 실행 실패 처리 이상: rc=$r11 [$e11]"; fi
 
 # ── 설치·사용·업데이트 흐름 (HOME 격리, GUI·launchctl·네트워크·외부 명령 차단) ──
 export HANGUL_NFC_WATCH_NO_LAUNCHCTL=1 HANGUL_NFC_NO_NETWORK=1 HANGUL_NFC_DRY_EXTERNAL=1
@@ -474,6 +611,25 @@ else ng "uninstall이 동명의 다른 도구를 지우려 함: $uo12"; fi
 WH="$TMP/uhome"; rm -rf "$WH"; mkdir -p "$WH/Downloads"
 HOME="$WH" /usr/bin/perl "$HANGUL_NFC" watch add "$WH/downloads" >/dev/null 2>&1; rc13=$?
 if [ "$rc13" -ne 0 ]; then ok "watch: 대소문자만 다른 보호 폴더(~/downloads)도 거부"; else ng "소문자 downloads 가 등록됨"; fi
+
+# [u14] Homebrew 없는 설치(~/.local/bin)는 ~/.zprofile에 표식 블록으로 PATH를 한 번만 더하고, 새 창·전체 경로를 안내한다.
+#       doctor·setup은 구체적인 한 줄 명령을 보여 주고, uninstall은 그 블록만 지운다(다른 내용은 보존).
+WH="$TMP/uhome"; rm -rf "$WH"; mkdir -p "$WH"; printf 'export FOO=1\n' > "$WH/.zprofile"
+d14a=$(HOME="$WH" PATH=/usr/bin:/bin:/usr/sbin:/sbin /usr/bin/perl "$HANGUL_NFC" doctor 2>&1)
+i14a=$(HOME="$WH" PATH=/usr/bin:/bin:/usr/sbin:/sbin /bin/sh "$INST" --from-source 2>&1); ri14=$?
+HOME="$WH" PATH=/usr/bin:/bin:/usr/sbin:/sbin /bin/sh "$INST" --from-source >/dev/null 2>&1
+nb14=$(grep -c '^# >>> hangul-nfc PATH >>>$' "$WH/.zprofile")
+# shellcheck disable=SC2016  # 블록에 적힌 그대로($HOME 미확장)를 찾는다
+pl14=$(grep -c '^export PATH="$HOME/.local/bin:$PATH"$' "$WH/.zprofile")
+d14b=$(HOME="$WH" PATH=/usr/bin:/bin:/usr/sbin:/sbin "$WH/.local/bin/hangul-nfc" doctor 2>&1)
+HOME="$WH" PATH=/usr/bin:/bin:/usr/sbin:/sbin "$WH/.local/bin/hangul-nfc" uninstall >/dev/null 2>&1
+if [ "$ri14" -eq 0 ] && [ "$nb14" -eq 1 ] && [ "$pl14" -eq 1 ] \
+   && echo "$i14a" | grep -q "새 터미널 창" && echo "$i14a" | grep -qF "전체 경로로 실행하세요: $WH/.local/bin/hangul-nfc" \
+   && echo "$d14a" | grep -qF "echo 'export PATH=" && ! echo "$d14a" | grep -q "setup이 추가 방법을 안내" \
+   && echo "$d14b" | grep -qF ".zprofile에 PATH를 추가해 두었습니다" \
+   && ! grep -q "hangul-nfc PATH" "$WH/.zprofile" && grep -qx 'export FOO=1' "$WH/.zprofile" && [ ! -e "$WH/.local/bin/hangul-nfc" ]; then
+    ok "install.sh: ~/.zprofile PATH 블록(1회)·새 창/전체 경로 안내, doctor 한 줄 명령, uninstall이 블록만 제거"
+else ng "PATH 블록 처리 이상: rc=$ri14 블록=$nb14 줄=$pl14 zprofile=[$(cat "$WH/.zprofile")]"; fi
 # ── 예전 이름(nfd2nfc, 1.x)에서 이전 ──
 # 예전 사용자 상태를 격리 HOME에 재현: 예전 에이전트·설정(감시 폴더 3개: 정상·사라짐·보호 위치)·로그·직접 설치 CLI
 mk_legacy() {

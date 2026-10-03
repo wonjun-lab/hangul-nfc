@@ -65,7 +65,7 @@ Mac에서는 Finder 등 많은 앱이 한글 파일명을 자모 단위로 **쪼
 curl -fsSL https://raw.githubusercontent.com/wonjun-lab/hangul-nfc/main/install.sh | sh
 ```
 
-Homebrew가 있으면 brew로, 없으면 `~/.local/bin` 에 설치하고 Finder 우클릭 메뉴까지 한 번에 설치합니다. 예전 이름(`nfd2nfc`)으로 설치했다면 이것만 다시 실행하면 옮겨집니다([자세히](#nfd2nfc에서-옮겨-오기)).
+Homebrew가 있으면 brew로, 없으면 `~/.local/bin` 에 설치하고 Finder 우클릭 메뉴까지 한 번에 설치합니다. brew 없이 설치했다면 `hangul-nfc` 명령은 **새 터미널 창부터** 쓸 수 있습니다(PATH를 `~/.zprofile` 에 자동으로 추가). 예전 이름(`nfd2nfc`)으로 설치했다면 이것만 다시 실행하면 옮겨집니다([자세히](#nfd2nfc에서-옮겨-오기)).
 
 ### <img src="https://api.iconify.design/simple-icons/homebrew.svg?color=%236E7DF2&width=20" width="20" /> Homebrew로 직접
 
@@ -88,6 +88,8 @@ hangul-nfc setup        # Finder 우클릭 메뉴 설치 (처음 한 번)
 
 **Finder에서** — 파일이나 폴더(여러 개 동시 선택도 가능)에서 우클릭 → **빠른 동작 → NFC로 이름 정리**. 폴더를 고르면 그 안쪽까지 한 번에 정리하고, 끝나면 알림이 뜹니다.
 
+> 💡 **압축해서 보낼 땐 압축하기 전에** 폴더를 먼저 정리하세요(우클릭 → **NFC로 이름 정리** → 그다음 **압축하기**). 그러면 zip 안의 이름도 정상이라 윈도우에서 풀어도 깨지지 않습니다.
+
 **터미널에서** —
 
 ```sh
@@ -106,7 +108,7 @@ hangul-nfc -v 보고서.pdf 자료.xlsx        # 여러 파일 + 변경 내역 �
 
 | 옵션 | 설명 |
 | --- | --- |
-| `-n`, `--dry-run` | 실제로 바꾸지 않고 무엇이 바뀔지 미리보기 |
+| `-n`, `--dry-run` | 실제로 바꾸지 않고 무엇이 바뀔지 미리보기 (바뀌기 전 이름은 `ㅈㅏㄹㅛ.pdf` 처럼 쪼개진 모양 그대로 보여 줌) |
 | `--no-recurse` | 지정한 항목만 처리 (하위 폴더 안 들어감) |
 | `--notify` | 완료 후 macOS 알림 |
 | `--reveal` | 완료 후 Finder에서 결과 보여주기 |
@@ -129,6 +131,20 @@ hangul-nfc uninstall    # 흔적 없이 제거 (저장소에서 ./uninstall.sh �
 
 - Finder 메뉴는 설치된 CLI를 호출하므로 **CLI만 업데이트하면 메뉴도 자동으로 최신**입니다. 1.1.x 이하에서 만든 메뉴는 `hangul-nfc setup` 을 한 번 실행하면 이 방식으로 바뀝니다(`doctor` 가 알려 줍니다).
 - `brew uninstall` 만 하면 메뉴·자동 감시가 남습니다. **`hangul-nfc uninstall` 을 쓰세요** — Homebrew 설치본이면 마지막에 `brew uninstall` 까지 해 줍니다.
+
+<a id="troubleshooting"></a>
+
+### <img src="https://api.iconify.design/ph/wrench-bold.svg?color=%236E7DF2&width=20" width="20" /> 문제 해결
+
+| 증상 | 해결 |
+| --- | --- |
+| 우클릭 → **빠른 동작**에 *NFC로 이름 정리*가 없다 | ① 터미널에서 `hangul-nfc doctor` — 원인과 해결 명령을 알려 줍니다. ② 우클릭 → **빠른 동작 → 사용자화…** 에서 *NFC로 이름 정리*가 켜져 있는지 확인하세요. ③ 2.0.2 이하 zip으로 설치한 메뉴는 빠른 동작에 안 뜹니다 — 최신 zip을 다시 받아 설치하거나 `hangul-nfc setup` 을 실행하세요. |
+| 설치하는 중 Finder 창이 닫혔다 다시 열렸다 | 정상입니다. 새 메뉴를 바로 보이게 하려고 `setup` 이 Finder를 한 번 다시 띄웁니다. |
+| `hangul-nfc: command not found` | brew 없이 설치했다면 **새 터미널 창**을 여세요. 지금 창에서 바로 쓰려면 `~/.local/bin/hangul-nfc` 처럼 전체 경로로 실행합니다. |
+| 완료 알림이 안 뜬다 | 알림은 *스크립트 편집기* 이름으로 옵니다. **시스템 설정 → 알림 → 스크립트 편집기** 에서 알림을 허용하세요. |
+| 단축키로 실행하고 싶다 | **시스템 설정 → 키보드 → 키보드 단축키… → 서비스 → 파일 및 폴더 → NFC로 이름 정리** 에 단축키를 지정하면, Finder에서 고른 뒤 단축키 한 번으로 정리됩니다. |
+| 알림에 `N개 변경 불가(볼륨이 NFD 강제)` | USB 메모리(exFAT)·NAS(SMB) 등은 이 Mac에서 이름을 고칠 수 없습니다. 내장 디스크로 복사한 뒤 정리하세요([자세히](#scope)). |
+| 알림에 `N개 열 수 없음` | 권한이 없어 읽지 못한 폴더가 있다는 뜻입니다. 터미널에서 같은 폴더로 `hangul-nfc -v` 를 실행하면 어느 폴더인지 보입니다. |
 
 <a id="nfd2nfc에서-옮겨-오기"></a>
 
@@ -168,7 +184,7 @@ Homebrew 설치본은 새 이름으로 옮기고(`brew migrate`) 최신으로 �
 ```sh
 hangul-nfc watch add ~/작업 ~/Pictures/스크린샷   # 등록 + 즉시 1회 정리
 hangul-nfc watch list                            # 등록 폴더·상태 보기
-hangul-nfc watch off                             # 잠시 중지
+hangul-nfc watch off                             # 중지 (다시 로그인해도 꺼진 채 유지)
 hangul-nfc watch on                              # 재개
 hangul-nfc watch remove ~/작업                    # 해제
 ```
@@ -179,7 +195,8 @@ hangul-nfc watch remove ~/작업                    # 해제
 - 등록 폴더는 **하위까지** 정리합니다. 이미 정상인 이름은 건드리지 않으므로 반복 실행돼도 안전합니다.
 - 즉시 반응하는 건 **등록 폴더 바로 아래**에 생긴 변화입니다(`launchd` 한계). 하위 폴더 안에 새로 생긴 파일은 **1시간마다 도는 전체 점검**에서 정리됩니다.
 - HFS+·exFAT·FAT 볼륨과 SMB(NAS 공유 폴더)의 폴더도 등록할 수 없습니다(아래 **바꾸는 범위** 참고).
-- 정리할 수 없게 된 폴더(권한·볼륨 문제)는 조용히 실패하지 않고 감시에서 빠지며 알림이 뜹니다. 상태는 `hangul-nfc doctor` 로 확인하세요.
+- 정리할 수 없게 된 폴더(권한·볼륨 문제)나 지워진 폴더는 조용히 실패하지 않고 감시에서 빠지며 알림이 뜹니다(빼낸 외장 디스크 안의 폴더는 다시 꽂을 때까지 그대로 둡니다). 상태는 `hangul-nfc doctor` 로 확인하세요.
+- `/`·홈 폴더처럼 보호 폴더를 품은 상위 폴더는 등록할 수 없습니다 — 그 아래 작업 폴더를 골라 등록하세요.
 - 로그: `~/Library/Logs/hangul-nfc-watch.log` · 설정: `~/Library/Application Support/hangul-nfc/`
 
 ---
@@ -192,7 +209,8 @@ hangul-nfc watch remove ~/작업                    # 해제
 - 이미 정상(NFC)인 파일은 손대지 않습니다.
 - 여러 번 실행해도 안전합니다(idempotent). 바꿀 게 없으면 아무 일도 일어나지 않습니다.
 - 깊은 폴더부터 처리해, 폴더 이름을 바꿔도 하위 경로가 어긋나지 않습니다.
-- 심볼릭 링크를 따라 들어가지 않습니다.
+- 심볼릭 링크를 따라 들어가지 않습니다(링크 자신의 이름만 정리). 터미널에서 `링크/` 처럼 끝에 `/` 를 붙여 직접 지정할 때만 대상 폴더를 정리합니다.
+- 앱 번들·패키지(`.app`·`.photoslibrary`·`.pages` 등)는 이름만 정리하고 안으로 들어가지 않습니다 — 내부 이름을 바꾸면 코드서명이 깨질 수 있어서입니다. 상위 폴더를 정리할 때 `~/Library` 안으로도 들어가지 않습니다(앱 데이터 보호).
 - 권한이 없어 못 읽거나 못 바꾸는 항목은 건너뛰고 알립니다(종료 코드 1).
 - **Dropbox·iCloud 등 동기화 폴더에서도 안전** — 이름만 바꾸므로(메타데이터만 변경), 클라우드 전용(아직 안 받은) 파일을 통째로 내려받지 않습니다.
 
@@ -208,7 +226,6 @@ hangul-nfc는 **파일·폴더 이름만** NFC로 바꿉니다. 그래서:
 
 - **파일 내용은 건드리지 않습니다.** 확장자·형식(`png`·`jpg`·`pdf`·`hwp`·`docx`·`xlsx` 등)과 무관하게, 이름만 정규화하고 내용·형식은 그대로 둡니다.
 - **압축 파일 안의 이름은 바꾸지 않습니다.** `zip`·`tar`, 그리고 내부가 압축인 `hwpx`·`docx` 같은 파일은 **파일 자체 이름만** 정규화됩니다. 압축 안에 든 한글 파일명이 NFD라면 다른 OS에서 풀 때 여전히 깨집니다 — 내부까지 고치려면 **macOS에서 풀어 정규화한 뒤 다시 압축**하세요.
-- **앱 번들(`.app`)은 피하세요.** macOS는 `.app`을 폴더로 다뤄, 통째로 정리하면 내부까지 들어갑니다. 보통은 무해하지만 **코드서명된 앱은 서명이 무효화**될 수 있습니다.
 - **HFS+·exFAT·FAT·SMB(NAS 공유 폴더) 볼륨에선 바꿀 수 없습니다.** HFS+는 파일명을 디스크에 NFD로 강제 저장하고, exFAT·FAT(USB 메모리 등)과 SMB는 디스크(서버)엔 조합형으로 저장하지만 macOS가 항상 NFD로 보여 줍니다 — 그래서 윈도우·NAS에서 직접 보면 정상이어도, **이 Mac에서 웹에 올리면 여전히 깨집니다.** hangul-nfc는 이런 볼륨을 감지해 손대지 않고 `N개 변경 불가(볼륨이 NFD 강제)`로 알립니다(종료 코드 1). 올릴 파일은 **APFS 볼륨(내장 디스크 등)으로 복사한 뒤** 정리하세요.
 - **NAS에 NFD로 올라간 이름은 NAS에서 정리하세요.** rsync·scp 등으로 Mac에서 NAS로 옮긴 파일은 NAS 디스크에 NFD 그대로 저장될 수 있습니다. 이런 파일은 Mac에서 SMB로 목록엔 보여도 **열리지 않고 이름도 바꿀 수 없습니다**(실측: Synology DSM 7). 아래 스크립트를 NAS에서 실행하면 정리되고, 그 뒤엔 Mac에서도 정상으로 열립니다.
 - **`--force`는 거의 쓸 일이 없습니다.** macOS 기본 볼륨(APFS·HFS+)에선 NFD와 NFC가 같은 파일이라 이름 충돌이 생기지 않습니다. `--force`는 정규형을 구분하는 일부 외장·네트워크 볼륨에서만 의미가 있고, 그곳에선 같은 이름의 **다른 파일을 영구히 덮어쓰므로**(복구 불가) 주의하세요. 기본값(충돌 시 건너뜀)을 권장합니다.
@@ -296,7 +313,7 @@ characters stay the same; only the underlying Unicode form is normalized.
 | <img src="https://api.iconify.design/ph/cursor-click-bold.svg?color=%236E7DF2&width=18" width="18" align="center" /> Finder only (no terminal) | Download `hangul-nfc-quick-action.zip` from [Releases](https://github.com/wonjun-lab/hangul-nfc/releases/latest), unzip, double-click `NFC로 이름 정리.workflow` |
 
 ```
-hangul-nfc [--dry-run] [--no-recurse] [--notify] [--reveal] [-q] [-f] [-v] [-V] [-h] <paths…>
+hangul-nfc [--dry-run] [--no-recurse] [--notify] [--reveal] [-q] [-f|--skip] [-v] [-V] [-h] <paths…>
 hangul-nfc setup        # install the Finder Quick Action (it calls the installed CLI, so updates carry over)
 hangul-nfc doctor       # check install, Quick Action, auto-watch and updates — with a fix for each problem
 hangul-nfc update       # update (delegates to `brew upgrade` for Homebrew installs)
@@ -310,7 +327,9 @@ background access there, and unsigned tools cannot even ask for permission. hang
 those folders up front and points you to the Finder Quick Action or the CLI instead.
 
 Safe by design: already-NFC files are left untouched, clashes with genuinely different
-files are skipped, and re-running is idempotent.
+files are skipped, app bundles and other packages are never entered (so code signatures stay
+intact), and re-running is idempotent. If the Quick Action doesn't show up, run
+`hangul-nfc doctor` or see [문제 해결](#troubleshooting).
 
 ---
 
