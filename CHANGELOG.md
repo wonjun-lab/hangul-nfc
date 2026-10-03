@@ -6,6 +6,28 @@
 
 ## [Unreleased]
 
+## [2.0.4] - 2026-10-03
+
+### Fixed — 정리 대상
+- **패키지 안까지 이름을 바꾸던 문제** — 폴더를 정리할 때 `.app`·`.framework`·`.bundle`·`.photoslibrary`·`.logicx`·`.rtfd`·`.pages`·`.xcodeproj` 등 패키지(그리고 `Contents/Info.plist`가 있는 확장자 붙은 폴더)는 이름만 정리하고 안으로 들어가지 않는다(코드 서명·내부 참조 보호). 패키지를 직접 지정해도 이름만. 상위 폴더(홈 등)를 정리할 때는 `~/Library` 안으로도 들어가지 않는다 — `~/Library`나 그 안의 경로를 직접 지정하면 정리한다. `-v`면 건너뛴 곳을 한 줄씩 알린다. 자동 감시도 같다.
+- **같은 항목을 다르게 적으면 여러 번 처리하던 문제** — `T/ T/. ./T $PWD/T`가 4번 세어졌다. 부모 폴더를 펴서 비교해 한 번만 처리한다.
+- **끝에 슬래시를 붙인 폴더 심링크**(`link/`)는 ls·rsync처럼 따라가 대상 폴더를 정리한다. 슬래시 없이 주면 예전처럼 링크 이름만 정리하고, 하위 탐색 중의 심링크는 여전히 따라가지 않는다.
+- **파일을 많이 골라 주면 느리던 문제** — 인자마다 폴더 전체를 다시 읽어(O(n²)) 3000개에 7초 걸렸다. 폴더 목록을 한 번만 읽어 0.2초(실측).
+- 열 수 없는 폴더·없는 경로 개수를 요약과 알림에 붙인다(`완료: 3개 변경, 1개 열 수 없음`). 앞머리 `완료: N개 변경`은 그대로.
+- 미리보기(`-n`)·`-v` 출력에서 바꾸기 전 이름의 분리된 자모를 호환 자모로 보여 준다(`ㅈㅏㄹㅛ.pdf  →  자료.pdf`). 터미널이 NFD를 합쳐 그려 앞뒤가 똑같아 보였다. 표시만 바뀌고 이름 정리는 같다.
+
+### Fixed — 자동 감시
+- **`watch add /`가 막히지 않던 문제** — 상위 폴더 판정에서 루트가 `//`가 돼 빠져나갔다. `/System/Volumes/Data/…`(펌링크) 경로로 보호 폴더를 등록하던 우회도 막았다.
+- **`watch off`가 다음 로그인 때 저절로 다시 켜지던 문제** — 내리기만 하고 LaunchAgent plist를 남겼다. 이제 plist를 지운다(폴더 목록은 남아 `watch on`으로 재개). `doctor`는 `자동 감시: 중지 · 폴더 N개 → hangul-nfc watch on`으로 안내한다. 꺼 둔 동안 `watch remove`는 감시를 다시 켜지 않는다.
+- 감시 목록: 같은 폴더의 NFD·NFC 철자를 한 항목으로 다루고 어느 철자로든 `watch remove`가 된다. 이름이 공백으로 끝나는 폴더도 감시된다(목록을 읽을 때 끝 공백을 지웠다).
+- 사라진 감시 폴더는 다음 실행 때 자동으로 빼고 로그·알림을 남긴다(외장 볼륨이 빠진 경우는 그대로 둔다). `doctor`가 지금 빼는 명령(`hangul-nfc watch remove '…'`)을 함께 보여 준다.
+- `watch remove`에 등록되지 않은 폴더를 주면 그렇다고 알리고 비0으로 끝난다. `watch add`·`watch remove`를 폴더 없이 부르면 사용법을 보여 주고 비0. `watch add`는 일부 폴더라도 등록하지 못하면 비0.
+- `watch add`가 처음 정리를 실행하지 못하면(실행 권한 없음 등) 등록 성공이라 하지 않고 오류를 알린다(비0).
+
+### Fixed — 설치·PATH
+- **Homebrew 없이 설치하면 `hangul-nfc` 명령을 찾지 못하던 문제** — `~/.local/bin`은 macOS 기본 PATH에 없다. `install.sh`가 `~/.zprofile`에 표식으로 감싼 PATH 블록을 한 번만 더하고, 새 터미널 창부터 쓸 수 있다는 것과 지금 바로 쓸 전체 경로를 알려 준다. `hangul-nfc uninstall`(`uninstall.sh`)이 그 블록만 지운다.
+- `doctor`·`setup`의 PATH 안내가 "setup이 안내합니다"처럼 돌고 돌던 것을 실행할 한 줄 명령(`echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zprofile`)과 전체 경로로 바꿨다.
+
 ## [2.0.3] - 2026-10-01
 
 ### Fixed
@@ -132,6 +154,7 @@
 - `install.sh` BIN_DIR 선택의 도달 불가능한 `elif` 죽은 코드 정리.
 - README 영문 사용법 한 줄에 누락됐던 `--reveal`/`-h` 추가.
 
+[2.0.4]: https://github.com/wonjun-lab/hangul-nfc/releases/tag/v2.0.4
 [2.0.3]: https://github.com/wonjun-lab/hangul-nfc/releases/tag/v2.0.3
 [2.0.2]: https://github.com/wonjun-lab/hangul-nfc/releases/tag/v2.0.2
 [2.0.1]: https://github.com/wonjun-lab/hangul-nfc/releases/tag/v2.0.1
