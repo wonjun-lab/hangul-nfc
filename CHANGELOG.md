@@ -27,6 +27,11 @@
 ### Fixed — 설치·PATH
 - **Homebrew 없이 설치하면 `hangul-nfc` 명령을 찾지 못하던 문제** — `~/.local/bin`은 macOS 기본 PATH에 없다. `install.sh`가 `~/.zprofile`에 표식으로 감싼 PATH 블록을 한 번만 더하고, 새 터미널 창부터 쓸 수 있다는 것과 지금 바로 쓸 전체 경로를 알려 준다. `hangul-nfc uninstall`(`uninstall.sh`)이 그 블록만 지운다.
 - `doctor`·`setup`의 PATH 안내가 "setup이 안내합니다"처럼 돌고 돌던 것을 실행할 한 줄 명령(`echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zprofile`)과 전체 경로로 바꿨다.
+- `/`·홈처럼 보호 폴더를 품은 상위 폴더를 등록하려 하면 "그 폴더를 통째로 정리하라"는 대안 대신 작업 폴더를 좁혀 등록하라고 안내한다(디스크 전체를 훑는 명령을 권하지 않게).
+
+### Docs · 릴리스
+- README에 **문제 해결** 표(빠른 동작에 메뉴가 없을 때, 설치 중 Finder 재시작, `command not found`, 알림이 안 뜰 때, 단축키 지정, 알림 문구 뜻)와 "압축하기 전에 먼저 정리" 팁을 더했다. 패키지·심링크·`watch off` 설명을 새 동작에 맞췄다.
+- 릴리스 워크플로가 태그와 `$VERSION`이 다르면 실패한다(버전 올리기를 잊은 태그 방지).
 
 ## [2.0.3] - 2026-10-01
 

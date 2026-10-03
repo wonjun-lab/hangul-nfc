@@ -763,10 +763,13 @@ sub watch_add {
         my $abs = watch_abs($arg);
         if (!defined $abs || !-d $abs) { warn "폴더가 아니거나 없음: $arg\n"; $fail = 1; next; }
         if (my $why = protected_reason($abs)) {
+            # 상위 폴더(/·홈 등)를 통째로 정리하라고 권하면 디스크 전체를 훑게 되므로, 그땐 좁혀 등록하라고만 한다.
             warn "등록 불가: $arg — $why.\n"
-               . "  백그라운드 자동 정리가 동작하지 않습니다. 대신 이렇게 쓰세요:\n"
-               . "    • Finder에서 선택 → 우클릭 → 빠른 동작 → NFC로 이름 정리\n"
-               . "    • 터미널: hangul-nfc " . sh_quote($arg) . "\n";
+               . ($why =~ /상위 폴더/
+                  ? "  보호 폴더를 품지 않는 작업 폴더를 골라 등록하세요(예: hangul-nfc watch add ~/작업).\n"
+                  : "  백그라운드 자동 정리가 동작하지 않습니다. 대신 이렇게 쓰세요:\n"
+                  . "    • Finder에서 선택 → 우클릭 → 빠른 동작 → NFC로 이름 정리\n"
+                  . "    • 터미널: hangul-nfc " . sh_quote($arg) . "\n");
             $fail = 1;
             next;
         }

@@ -13,6 +13,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: 태그와 스크립트 버전 일치 확인
+        run: |
+          # $VERSION 올리는 걸 잊고 태그만 달면 `--version`·update 확인이 옛 번호를 내므로 막는다.
+          v=$(./hangul-nfc --version | awk '{print $2}')
+          if [ "v$v" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::태그 $GITHUB_REF_NAME 와 hangul-nfc \$VERSION($v)이 다릅니다"
+            exit 1
+          fi
+
       - name: Quick Action zip 빌드
         run: |
           ./build-workflow.sh
