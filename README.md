@@ -100,7 +100,7 @@ hangul-nfc -v 보고서.pdf 자료.xlsx        # 여러 파일 + 변경 내역 �
 
 | 명령 | 하는 일 |
 | --- | --- |
-| `hangul-nfc setup` | Finder 우클릭 메뉴 설치 (처음 한 번). 메뉴는 설치된 CLI를 부르므로 업데이트하면 함께 최신이 됩니다 |
+| `hangul-nfc setup` | Finder 우클릭 메뉴 설치 (처음 한 번). 메뉴는 설치된 CLI를 부르므로 업데이트하면 함께 최신이 됩니다(메뉴 형식이 바뀐 버전이면 `doctor` 가 다시 실행하라고 알려 줌) |
 | `hangul-nfc doctor` | 설치·메뉴·자동 감시·새 버전 여부를 한눈에 점검하고, 문제마다 해결 명령을 알려 줍니다 |
 | `hangul-nfc update` | 최신 버전으로 업데이트 (Homebrew 설치면 `brew upgrade` 로 위임) |
 | `hangul-nfc uninstall` | 메뉴·자동 감시·설정·로그·CLI까지 한 번에 제거 (`--keep-cli` 로 CLI는 남김) |
@@ -129,7 +129,7 @@ hangul-nfc doctor       # 뭔가 이상하면 먼저 이것부터
 hangul-nfc uninstall    # 흔적 없이 제거 (저장소에서 ./uninstall.sh 도 같음)
 ```
 
-- Finder 메뉴는 설치된 CLI를 호출하므로 **CLI만 업데이트하면 메뉴도 자동으로 최신**입니다. 1.1.x 이하에서 만든 메뉴는 `hangul-nfc setup` 을 한 번 실행하면 이 방식으로 바뀝니다(`doctor` 가 알려 줍니다).
+- Finder 메뉴는 설치된 CLI를 호출하므로 **CLI만 업데이트하면 메뉴도 자동으로 최신**입니다. 단 메뉴 형식이 바뀐 버전으로 올렸을 땐 `hangul-nfc setup` 을 한 번 다시 실행해야 합니다 — 1.1.x 이하에서 만든 메뉴, 그리고 2.0.2 이하에서 만든 메뉴(빠른 동작에 안 뜸)가 그렇습니다. 업데이트 뒤 `hangul-nfc doctor` 를 돌리면 필요할 때만 알려 줍니다.
 - `brew uninstall` 만 하면 메뉴·자동 감시가 남습니다. **`hangul-nfc uninstall` 을 쓰세요** — Homebrew 설치본이면 마지막에 `brew uninstall` 까지 해 줍니다.
 
 <a id="troubleshooting"></a>
