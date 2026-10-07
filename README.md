@@ -13,7 +13,6 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/wonjun-lab/hangul-nfc/ci.yml?branch=main&style=flat-square&logo=github&label=CI)](https://github.com/wonjun-lab/hangul-nfc/actions/workflows/ci.yml)
 [![release](https://img.shields.io/github/v/release/wonjun-lab/hangul-nfc?style=flat-square&logo=github&label=release)](https://github.com/wonjun-lab/hangul-nfc/releases/latest)
 [![macOS](https://img.shields.io/badge/macOS-000000?style=flat-square&logo=apple&logoColor=white)](#)
-[![Homebrew](https://img.shields.io/badge/Homebrew-tap-FBB040?style=flat-square&logo=homebrew&logoColor=white)](https://github.com/wonjun-lab/homebrew-tap)
 [![zero deps](https://img.shields.io/badge/zero_deps-Perl-39457E?style=flat-square&logo=perl&logoColor=white)](#)
 [![License](https://img.shields.io/badge/License-MIT-6E7DF2?style=flat-square)](LICENSE)
 
@@ -65,14 +64,9 @@ Mac에서는 Finder 등 많은 앱이 한글 파일명을 자모 단위로 **쪼
 curl -fsSL https://raw.githubusercontent.com/wonjun-lab/hangul-nfc/main/install.sh | sh
 ```
 
-Homebrew가 있으면 brew로, 없으면 `~/.local/bin` 에 설치하고 Finder 우클릭 메뉴까지 한 번에 설치합니다. brew 없이 설치했다면 `hangul-nfc` 명령은 **새 터미널 창부터** 쓸 수 있습니다(PATH를 `~/.zprofile` 에 자동으로 추가). 예전 이름(`nfd2nfc`)으로 설치했다면 이것만 다시 실행하면 옮겨집니다([자세히](#nfd2nfc에서-옮겨-오기)).
+CLI를 `~/.local/bin` 에 설치하고 Finder 우클릭 메뉴까지 한 번에 설치합니다. `hangul-nfc` 명령은 **새 터미널 창부터** 쓸 수 있습니다(PATH를 `~/.zprofile` 에 자동으로 추가). 예전 이름(`nfd2nfc`)으로 설치했다면 이것만 다시 실행하면 옮겨집니다([자세히](#nfd2nfc에서-옮겨-오기)).
 
-### <img src="https://api.iconify.design/simple-icons/homebrew.svg?color=%236E7DF2&width=20" width="20" /> Homebrew로 직접
-
-```sh
-brew install wonjun-lab/tap/hangul-nfc
-hangul-nfc setup        # Finder 우클릭 메뉴 설치 (처음 한 번)
-```
+> **Homebrew로 설치했다면:** Homebrew 배포는 2.1.0에서 끝났습니다 — 한 줄 설치를 다시 실행하면 옮겨집니다. `~/.local/bin` 에 새로 설치하고 Finder 메뉴·자동 감시를 새 CLI로 바꾼 뒤 `brew uninstall hangul-nfc` 와 `brew untap wonjun-lab/tap` 까지 해 줍니다(같은 탭의 다른 도구가 남아 있으면 untap은 하지 않고 정리 명령만 알려 줍니다). tap 저장소가 없어지면 `brew update` 가 실패하니 옮겨 두세요.
 
 ### <img src="https://api.iconify.design/ph/cursor-click-bold.svg?color=%236E7DF2&width=20" width="20" /> 터미널 없이 — Finder 메뉴만
 
@@ -102,7 +96,7 @@ hangul-nfc -v 보고서.pdf 자료.xlsx        # 여러 파일 + 변경 내역 �
 | --- | --- |
 | `hangul-nfc setup` | Finder 우클릭 메뉴 설치 (처음 한 번). 메뉴는 설치된 CLI를 부르므로 업데이트하면 함께 최신이 됩니다(메뉴 형식이 바뀐 버전이면 `doctor` 가 다시 실행하라고 알려 줌) |
 | `hangul-nfc doctor` | 설치·메뉴·자동 감시·새 버전 여부를 한눈에 점검하고, 문제마다 해결 명령을 알려 줍니다 |
-| `hangul-nfc update` | 최신 버전으로 업데이트 (Homebrew 설치면 `brew upgrade` 로 위임) |
+| `hangul-nfc update` | 최신 버전으로 업데이트 |
 | `hangul-nfc uninstall` | 메뉴·자동 감시·설정·로그·CLI까지 한 번에 제거 (`--keep-cli` 로 CLI는 남김) |
 | `hangul-nfc watch …` | 폴더 자동 정리 (아래 참고) |
 
@@ -124,13 +118,13 @@ hangul-nfc -v 보고서.pdf 자료.xlsx        # 여러 파일 + 변경 내역 �
 ## <img src="https://api.iconify.design/ph/arrows-clockwise-bold.svg?color=%236E7DF2&width=24" width="24" /> 업데이트 · 점검 · 제거
 
 ```sh
-hangul-nfc update       # 최신으로 (Homebrew 설치면 brew upgrade hangul-nfc 와 같음)
+hangul-nfc update       # 최신으로
 hangul-nfc doctor       # 뭔가 이상하면 먼저 이것부터
 hangul-nfc uninstall    # 흔적 없이 제거 (저장소에서 ./uninstall.sh 도 같음)
 ```
 
 - Finder 메뉴는 설치된 CLI를 호출하므로 **CLI만 업데이트하면 메뉴도 자동으로 최신**입니다. 단 메뉴 형식이 바뀐 버전으로 올렸을 땐 `hangul-nfc setup` 을 한 번 다시 실행해야 합니다 — 1.1.x 이하에서 만든 메뉴, 그리고 2.0.2 이하에서 만든 메뉴(빠른 동작에 안 뜸)가 그렇습니다. 업데이트 뒤 `hangul-nfc doctor` 를 돌리면 필요할 때만 알려 줍니다.
-- `brew uninstall` 만 하면 메뉴·자동 감시가 남습니다. **`hangul-nfc uninstall` 을 쓰세요** — Homebrew 설치본이면 마지막에 `brew uninstall` 까지 해 줍니다.
+- CLI 파일만 지우면 메뉴·자동 감시가 남습니다. **`hangul-nfc uninstall` 을 쓰세요**.
 
 <a id="troubleshooting"></a>
 
@@ -140,7 +134,7 @@ hangul-nfc uninstall    # 흔적 없이 제거 (저장소에서 ./uninstall.sh �
 | --- | --- |
 | 우클릭 → **빠른 동작**에 *NFC로 이름 정리*가 없다 | ① 터미널에서 `hangul-nfc doctor` — 원인과 해결 명령을 알려 줍니다. ② 우클릭 → **빠른 동작 → 사용자화…** 에서 *NFC로 이름 정리*가 켜져 있는지 확인하세요. ③ 2.0.2 이하 zip으로 설치한 메뉴는 빠른 동작에 안 뜹니다 — 최신 zip을 다시 받아 설치하거나 `hangul-nfc setup` 을 실행하세요. |
 | 설치하는 중 Finder 창이 닫혔다 다시 열렸다 | 정상입니다. 새 메뉴를 바로 보이게 하려고 `setup` 이 Finder를 한 번 다시 띄웁니다. |
-| `hangul-nfc: command not found` | brew 없이 설치했다면 **새 터미널 창**을 여세요. 지금 창에서 바로 쓰려면 `~/.local/bin/hangul-nfc` 처럼 전체 경로로 실행합니다. |
+| `hangul-nfc: command not found` | 설치한 뒤엔 **새 터미널 창**을 여세요. 지금 창에서 바로 쓰려면 `~/.local/bin/hangul-nfc` 처럼 전체 경로로 실행합니다. |
 | 완료 알림이 안 뜬다 | 알림은 *스크립트 편집기* 이름으로 옵니다. **시스템 설정 → 알림 → 스크립트 편집기** 에서 알림을 허용하세요. 허용돼 있는데도 안 뜨면 **집중 모드**(방해금지·업무 등) 때문입니다 — 알림은 배너 없이 **알림 센터**(메뉴 막대의 시계 클릭)로만 갑니다. 바로 보이게 하려면 **시스템 설정 → 집중 모드 → (사용 중인 모드) → 허용된 앱**에 *스크립트 편집기*를 추가하세요. 집중 모드는 같은 Apple 계정의 기기끼리 공유되므로 다른 기기에서 켠 모드일 수도 있습니다. |
 | 단축키로 실행하고 싶다 | **시스템 설정 → 키보드 → 키보드 단축키… → 서비스 → 파일 및 폴더 → NFC로 이름 정리** 에 단축키를 지정하면, Finder에서 고른 뒤 단축키 한 번으로 정리됩니다. |
 | 알림에 `N개 변경 불가(볼륨이 NFD 강제)` | USB 메모리(exFAT)·NAS(SMB) 등은 이 Mac에서 이름을 고칠 수 없습니다. 내장 디스크로 복사한 뒤 정리하세요([자세히](#scope)). |
@@ -161,13 +155,8 @@ hangul-nfc uninstall    # 흔적 없이 제거 (저장소에서 ./uninstall.sh �
 curl -fsSL https://raw.githubusercontent.com/wonjun-lab/hangul-nfc/main/install.sh | sh
 ```
 
-Homebrew 설치본은 새 이름으로 옮기고(`brew migrate`) 최신으로 올린 뒤, `hangul-nfc setup` 이 Finder 메뉴·자동 감시 폴더·설정을 새 이름으로 옮기고 예전 흔적을 정리합니다.
+새 CLI를 `~/.local/bin` 에 설치하고(Homebrew 설치본은 지움), `hangul-nfc setup` 이 Finder 메뉴·자동 감시 폴더·설정을 새 이름으로 옮기고 예전 흔적을 정리합니다.
 
-- ⚠️ **`brew upgrade` 만으로는 옮겨지지 않습니다.** Homebrew의 탭 신뢰 정책 때문에 이름이 바뀐 formula는 조용히 건너뜁니다(실측). 직접 하려면:
-  ```sh
-  brew trust --formula wonjun-lab/tap/hangul-nfc && brew migrate hangul-nfc && brew upgrade hangul-nfc
-  hangul-nfc setup
-  ```
 - ⚠️ 예전 버전의 `nfd2nfc update`·`nfd2nfc doctor` 로는 2.0을 찾지 못합니다(이름이 바뀌어 "확인 실패"처럼 보입니다). 위 방법으로 옮겨 오세요.
 - 옮기기 전까지도 예전 `nfd2nfc` 1.2.0은 그대로 동작합니다(메뉴·자동 감시 포함).
 - 남은 게 있는지는 `hangul-nfc doctor` 가 알려 줍니다(예전 이름의 흔적도 찾아냅니다).
@@ -303,20 +292,22 @@ hangul-nfc는 그게 불가능한, **올리는 쪽 사용자**를 위한 처방�
 Zero dependencies; it uses the `perl` that already ships with macOS. The visible
 characters stay the same; only the underlying Unicode form is normalized.
 
-> Formerly **nfd2nfc** (renamed in 2.0). To migrate, re-run the one-liner below — a plain
-> `brew upgrade` does not migrate it.
+> Formerly **nfd2nfc** (renamed in 2.0). To migrate, re-run the one-liner below.
+>
+> Homebrew distribution ended in 2.1.0. If you installed with Homebrew, re-run the one-liner: it
+> moves the CLI to `~/.local/bin`, re-points the Quick Action and auto-watch, then removes the
+> Homebrew install and the `wonjun-lab/tap` tap.
 
 | Install | How |
 | --- | --- |
-| <img src="https://api.iconify.design/ph/terminal-window-bold.svg?color=%236E7DF2&width=18" width="18" align="center" /> One-liner (recommended — uses Homebrew if present, installs the Finder Quick Action) | `curl -fsSL https://raw.githubusercontent.com/wonjun-lab/hangul-nfc/main/install.sh \| sh` |
-| <img src="https://api.iconify.design/simple-icons/homebrew.svg?color=%236E7DF2&width=18" width="18" align="center" /> Homebrew | `brew install wonjun-lab/tap/hangul-nfc && hangul-nfc setup` |
+| <img src="https://api.iconify.design/ph/terminal-window-bold.svg?color=%236E7DF2&width=18" width="18" align="center" /> One-liner (recommended — installs the CLI to `~/.local/bin` and the Finder Quick Action) | `curl -fsSL https://raw.githubusercontent.com/wonjun-lab/hangul-nfc/main/install.sh \| sh` |
 | <img src="https://api.iconify.design/ph/cursor-click-bold.svg?color=%236E7DF2&width=18" width="18" align="center" /> Finder only (no terminal) | Download `hangul-nfc-quick-action.zip` from [Releases](https://github.com/wonjun-lab/hangul-nfc/releases/latest), unzip, double-click `NFC로 이름 정리.workflow` |
 
 ```
 hangul-nfc [--dry-run] [--no-recurse] [--notify] [--reveal] [-q] [-f|--skip] [-v] [-V] [-h] <paths…>
 hangul-nfc setup        # install the Finder Quick Action (it calls the installed CLI, so updates carry over)
 hangul-nfc doctor       # check install, Quick Action, auto-watch and updates — with a fix for each problem
-hangul-nfc update       # update (delegates to `brew upgrade` for Homebrew installs)
+hangul-nfc update       # update to the latest release
 hangul-nfc uninstall    # remove everything: Quick Action, auto-watch, settings, logs and the CLI
 hangul-nfc watch add|remove|list|on|off <folders…>   # auto-normalize folders in the background
 ```

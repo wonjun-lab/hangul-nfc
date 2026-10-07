@@ -35,7 +35,7 @@ use Unicode::Normalize qw(NFC NFKD compose reorder);
 use Encode qw(decode_utf8 encode_utf8);
 use Getopt::Long qw(GetOptions);
 
-our $VERSION = "2.0.4";
+our $VERSION = "2.1.0";
 
 # 분리된 자모 등 결합 가능한 문자열만 합친다(= NFC에서 '분해' 단계를 뺀 것).
 # NFC는 호환 한자(U+F900~, 예: 樂 U+F914)나 Ω(U+2126) 같은 singleton까지 다른 코드포인트로
@@ -610,6 +610,13 @@ PLIST
     print $fh $body;
     close $fh;
 }
+# 지금 plist가 실행하는 CLI 경로(ProgramArguments 첫 항목). plist가 없으면 undef.
+sub watch_plist_program {
+    my $p = slurp(watch_plist_file()) // return undef;
+    return undef unless $p =~ m{<key>ProgramArguments</key>\s*<array>\s*<string>([^<]*)</string>};
+    (my $s = $1) =~ s/&lt;/</g; $s =~ s/&gt;/>/g; $s =~ s/&amp;/&/g;
+    return $s;
+}
 
 # ── launchctl (HANGUL_NFC_WATCH_NO_LAUNCHCTL=1이면 건너뜀 — 테스트/CI용) ──
 # 출력·오류를 숨기고 종료 코드만 본다(예전 load/unload는 '로드 안 됨' 오류를 화면에 흘렸다).
@@ -857,7 +864,7 @@ sub capture { open(my $ph, '-|', @_) or return ''; local $/; my $o = <$ph> // ''
 sub slurp { my ($f) = @_; open(my $fh, '<', $f) or return undef; local $/; my $s = <$fh>; close $fh; return $s }
 
 # ── 터미널 PATH ──
-# Homebrew 없이 설치하면 CLI가 ~/.local/bin에 놓이는데, macOS 기본 PATH엔 이 폴더가 없다. install.sh가
+# CLI는 ~/.local/bin에 설치되는데, macOS 기본 PATH엔 이 폴더가 없다. install.sh가
 # ~/.zprofile에 아래 표식으로 감싼 블록을 더하고(여러 번 실행해도 한 번만), uninstall이 그 블록만 지운다.
 sub zprofile_file   { "$ENV{HOME}/.zprofile" }
 sub path_mark_begin { '# >>> hangul-nfc PATH >>>' }   # install.sh와 같은 문자열이어야 한다
@@ -892,29 +899,56 @@ sub remove_path_block {
     close $fh;
     return 1;
 }
-# CLI가 놓일 수 있는 표준 위치(Homebrew 두 곳 + 직접 설치). Quick Action·uninstall이 함께 쓴다.
+# CLI가 놓일 수 있는 표준 위치(직접 설치 + 2.0.x까지의 Homebrew 두 곳). Quick Action·uninstall이 함께 쓴다.
+# 설치는 ~/.local/bin 하나뿐이라 맨 앞에 둔다. Homebrew 경로는 예전 설치본을 찾아 지우려고 남겨 둔다.
 sub cli_candidates {
     # HANGUL_NFC_CLI_CANDIDATES(콜론 구분)로 바꿀 수 있다 — 테스트가 실제 시스템 경로를 건드리지 않게.
     return grep { length } split /:/, $ENV{HANGUL_NFC_CLI_CANDIDATES} if defined $ENV{HANGUL_NFC_CLI_CANDIDATES};
-    return ('/opt/homebrew/bin/hangul-nfc', '/usr/local/bin/hangul-nfc', "$ENV{HOME}/.local/bin/hangul-nfc");
+    return ("$ENV{HOME}/.local/bin/hangul-nfc", '/opt/homebrew/bin/hangul-nfc', '/usr/local/bin/hangul-nfc');
 }
+# ── Homebrew(2.0.x까지의 배포 경로) 정리 ──
+# Homebrew 배포는 2.1.0에서 끝났고 tap(wonjun-lab/tap) 저장소도 없어진다. 남은 설치본은 한 줄 설치가
+# ~/.local/bin으로 옮기고(install.sh) brew uninstall·untap 한다. 여기 코드는 그 설치본을 알아보고 치우는 데만 쓴다.
+sub install_url      { 'https://raw.githubusercontent.com/wonjun-lab/hangul-nfc/main/install.sh' }
+sub install_oneliner { 'curl -fsSL ' . install_url() . ' | sh' }
+sub brew_tap         { 'wonjun-lab/tap' }
 # Homebrew로 설치된 "우리" hangul-nfc인가. 예전 이름 nfd2nfc가 homebrew/core의 다른 도구와 겹쳤듯
-# Cellar 경로만으론 판단할 수 없다 — 내용이 우리 스크립트인지까지 본다.
+# Cellar 경로만으론 판단할 수 없다 — 내용이 우리 스크립트인지까지 본다. 그래서 brew 명령엔 tap이 사라져도
+# 통하는 keg 이름(hangul-nfc)만 쓴다(Cellar/hangul-nfc가 우리 것임을 이미 확인했다).
 sub brew_managed { my ($p) = @_; my $r = Cwd::abs_path($p) // ''; return $r =~ m{/Cellar/hangul-nfc/} && is_our_script($r) }
-# brew 명령엔 항상 전체 이름을 쓴다(다른 tap의 같은 이름과 구분). 설치 영수증에 적힌 tap을 우선한다.
-sub brew_formula {
-    my ($p) = @_;
-    my $r = Cwd::abs_path($p // watch_self()) // '';
-    if ($r =~ m{^(.*/Cellar/hangul-nfc/[^/]+)/}) {
-        my $receipt = slurp("$1/INSTALL_RECEIPT.json") // '';
-        return "$1/hangul-nfc" if $receipt =~ /"tap"\s*:\s*"([^"]+)"/;
-    }
-    return 'wonjun-lab/tap/hangul-nfc';
-}
 sub is_our_script { my $s = slurp($_[0]) // ''; return $s =~ /^# hangul-nfc — macOS 한글 파일명/m }
+# HANGUL_NFC_BREW로 바꿀 수 있다(빈 값 = brew 없음) — 테스트가 실제 Homebrew를 건드리지 않게.
 sub brew_cmd {
+    if (defined $ENV{HANGUL_NFC_BREW}) { my $b = $ENV{HANGUL_NFC_BREW}; return length $b && -x $b ? $b : undef }
     for (qw(/opt/homebrew/bin/brew /usr/local/bin/brew)) { return $_ if -x $_ }
     return find_in_path('brew');
+}
+# tap이 아직 등록돼 있나 — brew를 부르지 않고 폴더로 본다(doctor를 빠르게). <저장소>/bin/brew → <저장소>/Library/Taps.
+sub brew_tap_dir {
+    my ($brew) = @_;
+    my $r = Cwd::abs_path($brew) // return undef;
+    $r =~ s{/bin/brew\z}{} or return undef;
+    return "$r/Library/Taps/wonjun-lab/homebrew-tap";
+}
+# tap에서 설치된 formula 전체 이름 목록(예: wonjun-lab/tap/codex-swap).
+sub brew_tap_installed {
+    my ($brew) = @_;
+    my $t = brew_tap();
+    return grep { m{^\Q$t\E/} } split /\n/, capture($brew, 'list', '--formula', '--full-name');
+}
+# tap에 우리 것(hangul-nfc·nfd2nfc) 말고 남은 formula가 없으면 untap 한다. 남아 있으면 안내만.
+sub brew_untap_if_unused {
+    my ($brew) = @_;
+    my $dir = brew_tap_dir($brew);
+    return unless defined $dir && -d $dir;
+    my $t = brew_tap();
+    my @others = map { s{^\Q$t\E/}{}r } grep { !m{/(?:hangul-nfc|nfd2nfc)\z} } brew_tap_installed($brew);
+    if (!@others) {
+        run_external($brew, 'untap', $t) == 0 and print "✓ Homebrew 탭 정리: brew untap $t\n";
+        return;
+    }
+    print "· Homebrew 탭 $t 은 곧 없어집니다 — 남은 @others 도 옮기세요: brew uninstall @others && brew untap $t\n";
+    print "  (codex-swap은 자체 설치 스크립트로 다시 설치할 수 있습니다)\n" if grep { $_ eq 'codex-swap' } @others;
 }
 # 외부 명령(brew 등) 실행. HANGUL_NFC_DRY_EXTERNAL=1이면 실행 대신 출력만(테스트용).
 sub run_external {
@@ -965,7 +999,7 @@ sub subcmd_opts {
 }
 
 # ── Finder 우클릭 메뉴(Quick Action) ─────────────────────────────────────────
-# 메뉴는 설치된 CLI를 호출한다 — brew upgrade·hangul-nfc update로 CLI가 바뀌면 메뉴도 그대로 최신이 된다.
+# 메뉴는 설치된 CLI를 호출한다 — hangul-nfc update로 CLI가 바뀌면 메뉴도 그대로 최신이 된다.
 # CLI가 없을 때(Releases zip만 설치)를 위해 이 스크립트 사본도 내장해 둔다.
 sub qa_name   { 'NFC로 이름 정리' }
 sub qa_path   { "$ENV{HOME}/Library/Services/" . qa_name() . '.workflow' }
@@ -1066,8 +1100,7 @@ sub qa_main {
 # ── 예전 이름(nfd2nfc, 1.x)에서 이전 ─────────────────────────────────────────
 # 1.x는 nfd2nfc라는 이름이었다(homebrew/core의 다른 도구와 이름이 겹쳐 2.0에서 변경). 예전 자동 감시
 # 에이전트는 사라진 nfd2nfc 명령을 부르므로 그대로 두면 조용히 멈춘다 — setup이 옮기고 치운다.
-# Homebrew 설치본은 이름 변경(formula_renames.json)이 있어도 탭 신뢰 정책 때문에 brew upgrade가 옮기지
-# 않는다(실측) — 한 줄 설치(install.sh)를 다시 실행하거나 brew_migrate_hint()의 명령으로 옮긴다.
+# Homebrew 설치본(Cellar/nfd2nfc)은 한 줄 설치(install.sh)가 brew uninstall 하고 ~/.local/bin으로 옮긴다.
 sub legacy_label       { 'com.wonjun-lab.nfd2nfc.watch' }
 sub legacy_plist_file  { "$ENV{HOME}/Library/LaunchAgents/" . legacy_label() . '.plist' }
 sub legacy_support_dir { "$ENV{HOME}/Library/Application Support/nfd2nfc" }
@@ -1077,11 +1110,6 @@ sub legacy_cli_candidates {
     return ('/opt/homebrew/bin/nfd2nfc', '/usr/local/bin/nfd2nfc', "$ENV{HOME}/.local/bin/nfd2nfc");
 }
 sub is_legacy_script { my $s = slurp($_[0]) // ''; return $s =~ /^# nfd2nfc — macOS 한글 파일명/m }
-# Homebrew의 예전 이름(nfd2nfc) 설치본을 옮기는 명령. 이름이 바뀐 formula는 신뢰 등록(brew trust)이 먼저다.
-sub brew_migrate_hint {
-    return "brew trust --formula wonjun-lab/tap/hangul-nfc && brew migrate hangul-nfc && brew upgrade hangul-nfc"
-         . " (또는 한 줄 설치를 다시 실행)";
-}
 
 # 남은 예전 흔적: [종류, 경로] 목록. 종류 = agent·config·log·cli(직접 설치)·brew(Homebrew 설치본)
 sub legacy_leftovers {
@@ -1134,10 +1162,9 @@ sub migrate_legacy {
         next if -l $c || !-f $c || !is_legacy_script($c);   # Homebrew 설치본(심링크)은 brew가 맡는다
         push @done, unlink($c) ? "예전 CLI 제거: $c" : "! 예전 CLI를 지우지 못함: $c ($!) — 직접 지우세요";
     }
-    if (grep { $_->[0] eq 'brew' } legacy_leftovers()) {
-        push @done, $o{move_watch}
-            ? "Homebrew의 예전 이름 설치본이 남아 있습니다 → " . brew_migrate_hint()
-            : "Homebrew의 예전 이름 설치본은 'brew uninstall wonjun-lab/tap/nfd2nfc'로 지우세요";
+    # Homebrew 설치본은 setup에선 안내만 한다(uninstall은 직접 brew uninstall 한다).
+    if ($o{move_watch} && grep { $_->[0] eq 'brew' } legacy_leftovers()) {
+        push @done, "Homebrew의 예전 이름 설치본이 남아 있습니다 → 한 줄 설치를 다시 실행하면 옮겨집니다: " . install_oneliner();
     }
     return @done;
 }
@@ -1149,6 +1176,13 @@ sub setup_main {
     my %o = %$opt;
     my $cli = watch_self();
     print "✓ 예전 이름(nfd2nfc)에서 이전: $_\n" for migrate_legacy(move_watch => 1);
+    # 자동 감시가 다른 CLI(예: 지운 Homebrew 설치본)를 부르고 있으면 이 CLI로 바꾼다 — 그대로 두면 조용히 멈춘다.
+    my $prog = watch_plist_program();
+    if (defined $prog && $prog ne $cli && watch_read_list()) {
+        watch_write_plist();
+        watch_load();
+        print "✓ 자동 감시가 이 CLI를 부르도록 갱신: $cli\n";
+    }
     my $had = -e qa_path();
     qa_build(qa_path(), $cli);
     services_refresh(restart_finder => !$o{'--no-restart-finder'});
@@ -1190,11 +1224,20 @@ sub uninstall_main {
     }
     unless ($o{'--keep-cli'}) {
         my $self = watch_self();
-        my ($brew_link) = grep { -l $_ && brew_managed($_) } cli_candidates();
-        if ($brew_link || brew_managed($self)) {
-            my $brew = brew_cmd();
-            if ($brew) { run_external($brew, 'uninstall', brew_formula($brew_link // $self)) == 0 and print("✓ Homebrew에서 CLI 제거\n") }
-            else       { print "! Homebrew 설치본입니다 — 'brew uninstall hangul-nfc'로 지우세요\n" }
+        # 2.0.x까지 Homebrew로 설치한 CLI(예전 이름 nfd2nfc 포함)는 brew로 지우고, tap에 남은 게 없으면 untap 한다.
+        my @kegs;
+        push @kegs, 'hangul-nfc' if brew_managed($self) || grep { -l $_ && brew_managed($_) } cli_candidates();
+        push @kegs, 'nfd2nfc'    if grep { $_->[0] eq 'brew' } legacy_leftovers();
+        if (@kegs) {
+            if (my $brew = brew_cmd()) {
+                my $fail = 0;
+                for my $k (@kegs) {
+                    if (run_external($brew, 'uninstall', '--formula', $k) == 0) { print "✓ Homebrew에서 CLI 제거: $k\n" }
+                    else { $fail = 1 }
+                }
+                brew_untap_if_unused($brew) unless $fail;
+            }
+            else { print "! Homebrew 설치본입니다 — 'brew uninstall @kegs'로 지우세요\n" }
         }
         # 직접 설치한 사본(install.sh 등)만 지운다 — 심링크(brew)·다른 프로그램 파일은 건드리지 않는다.
         for my $c (cli_candidates()) {
@@ -1218,6 +1261,26 @@ sub doctor_main {
     my $self = watch_self();
     my $how  = brew_managed($self) ? 'Homebrew' : '직접 설치';
     print "hangul-nfc $VERSION — $self ($how)\n";
+    # Homebrew 배포는 끝났다(tap 저장소도 없어져 brew update·upgrade가 실패한다) — 한 줄 설치로 옮기게 한다.
+    my ($brew_link) = grep { -l $_ && brew_managed($_) } cli_candidates();
+    if (brew_managed($self)) {
+        print "! Homebrew 배포는 2.1.0에서 끝났습니다 → hangul-nfc update (~/.local/bin으로 옮기고 Homebrew 설치본을 정리)\n",
+              "    또는 한 줄 설치를 다시 실행: ", install_oneliner(), "\n";
+        $bad = 1;
+    }
+    elsif ($brew_link) {
+        print "! Homebrew 배포는 2.1.0에서 끝났습니다 — 예전 Homebrew 설치본이 남아 있습니다: $brew_link\n",
+              "    → 한 줄 설치를 다시 실행하면 정리됩니다: ", install_oneliner(), "\n";
+        $bad = 1;
+    }
+    elsif (my $brew = brew_cmd()) {
+        # tap 폴더가 있을 때만 brew를 부른다(대부분은 폴더 확인으로 끝나 doctor가 느려지지 않는다).
+        my $dir = brew_tap_dir($brew);
+        if (defined $dir && -d $dir && !brew_tap_installed($brew)) {
+            print "! Homebrew 탭 " . brew_tap() . "이 남아 있습니다(저장소가 없어져 brew update가 실패합니다) → brew untap " . brew_tap() . "\n";
+            $bad = 1;
+        }
+    }
 
     my $inpath = find_in_path('hangul-nfc');
     if (!$inpath) { print "! 터미널 PATH에 없음 — ", path_hint($self) }
@@ -1244,6 +1307,9 @@ sub doctor_main {
         my $on = watch_active();
         print +($on ? "✓ 자동 감시: 활성" : "! 자동 감시: 중지"), " · 폴더 ", scalar(@dirs), "개",
               ($on ? '' : " → hangul-nfc watch on"), "\n";
+        # 지운 CLI(예: brew uninstall 한 Homebrew 설치본)를 부르는 감시는 조용히 멈춘다.
+        my $prog = watch_plist_program();
+        if (defined $prog && !-x $prog) { print "    ✗ 자동 감시가 없는 CLI를 부릅니다: $prog → hangul-nfc setup\n"; $bad = 1 }
         for my $d (@dirs) {
             my $st = !-d $d ? '✗ 폴더 없음 — 다음 실행 때 자동 해제됩니다'
                    : protected_reason($d) ? '✗ macOS 보호 위치 — 다음 실행 때 자동 해제됩니다'
@@ -1267,7 +1333,7 @@ sub doctor_main {
         print "! 예전 이름(nfd2nfc)의 흔적이 남아 있습니다:\n";
         print "    · $what{$_->[0]}: $_->[1]\n" for @legacy;
         print "    → hangul-nfc setup 이 옮기고 정리합니다",
-              (grep({ $_->[0] eq 'brew' } @legacy) ? " (Homebrew 설치본: " . brew_migrate_hint() . ")" : ''), "\n";
+              (grep({ $_->[0] eq 'brew' } @legacy) ? " (Homebrew 설치본은 한 줄 설치를 다시 실행: " . install_oneliner() . ")" : ''), "\n";
         $bad = 1;
     }
 
@@ -1282,15 +1348,13 @@ sub doctor_main {
 sub update_main {
     my ($opt, $rc) = subcmd_opts('update', '', [], @_);
     return $rc unless $opt;
+    my $self = watch_self();
+    # Homebrew 설치본은 버전과 상관없이 한 줄 설치로 옮긴다 — tap이 없어져 brew upgrade는 실패한다.
+    return update_from_brew() if brew_managed($self);
     my $latest = latest_version();
     if (!defined $latest) { warn "최신 버전을 확인할 수 없습니다(네트워크 확인)\n"; return 1 }
     if (!version_gt($latest, $VERSION)) { print "이미 최신입니다 (hangul-nfc $VERSION)\n"; return 0 }
     print "hangul-nfc $VERSION → $latest\n";
-    my $self = watch_self();
-    if (brew_managed($self)) {
-        my $brew = brew_cmd() or do { warn "brew를 찾을 수 없습니다\n"; return 1 };
-        return run_external($brew, 'upgrade', brew_formula());
-    }
     (my $dir = $self) =~ s{/[^/]*$}{};
     # .git이 파일인 worktree·submodule도 잡도록 -e로 본다(덮어쓰면 커밋 안 한 수정이 사라진다).
     if (-e "$dir/.git") { print "git 저장소 사본입니다 — 'git pull'로 업데이트하세요\n"; return 1 }
@@ -1309,6 +1373,22 @@ sub update_main {
     print "! Finder 메뉴가 예전 방식입니다 — 'hangul-nfc setup'을 한 번 실행하면 앞으로 자동으로 따라옵니다\n"
         if defined $wf && (index($wf, qa_marker()) < 0 || qa_not_finder());
     return 0;
+}
+# Homebrew 설치본의 update = 한 줄 설치와 같은 이전: install.sh를 받아 실행한다(~/.local/bin에 설치 →
+# brew uninstall → Finder 메뉴·자동 감시를 새 CLI로 → 남은 게 없으면 untap).
+# HANGUL_NFC_INSTALL_URL로 받을 주소를 바꿀 수 있다(테스트용).
+sub update_from_brew {
+    print "Homebrew 배포는 2.1.0에서 끝났습니다 — 한 줄 설치로 옮깁니다(~/.local/bin, Finder 메뉴·자동 감시 포함).\n";
+    my $url = $ENV{HANGUL_NFC_INSTALL_URL} // install_url();
+    require File::Temp;
+    my $tmpdir = File::Temp::tempdir('hangul-nfc-install.XXXXXX', TMPDIR => 1, CLEANUP => 1);
+    my $tmp = "$tmpdir/install.sh";
+    # 받은 파일이 우리 설치 스크립트이고 문법상 온전할 때만 실행한다(끊긴 다운로드·오류 페이지 방지).
+    my $ok = system('/usr/bin/curl', '-fsSL', '-m', '30', '-o', $tmp, $url) == 0
+          && (slurp($tmp) // '') =~ /^# install\.sh — hangul-nfc 설치/m
+          && quiet_system('/bin/sh', '-n', $tmp) == 0;
+    if (!$ok) { warn "설치 스크립트를 받지 못했습니다 — 직접 실행하세요:\n    " . install_oneliner() . "\n"; return 1 }
+    return run_external('/bin/sh', $tmp);
 }
 
 # Automator "셸 스크립트 실행" 한 단계짜리 빠른 동작(파일·폴더 입력, 인수로 전달, /bin/zsh).

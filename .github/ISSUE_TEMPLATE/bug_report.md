@@ -13,7 +13,7 @@ labels: bug
 
 ## 환경
 - macOS 버전:
-- 설치 방법: (Homebrew / install.sh / Quick Action zip)
+- 설치 방법: (한 줄 설치 install.sh / Quick Action zip / 예전 Homebrew 설치본)
 - `hangul-nfc --version` 출력:
 
 ## 추가 정보
