@@ -6,6 +6,19 @@
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-10-08
+
+### Removed — Homebrew 배포
+- **Homebrew 배포를 끝냈다.** tap 저장소(`wonjun-lab/homebrew-tap`)도 없어진다 — 그 뒤엔 tap이 남은 Mac에서 `brew update`·`brew upgrade`가 실패한다. 설치는 한 줄 설치(`curl … install.sh | sh`, CLI는 `~/.local/bin` + Finder 메뉴)와 Releases zip(메뉴만) 두 가지다. 이 저장소의 `hangul-nfc.rb`와 릴리스 절차의 tap 갱신 단계를 지웠다.
+
+### Changed — Homebrew 설치본 이전
+- **한 줄 설치를 다시 실행하면 옮겨진다.** `install.sh`는 brew 여부와 상관없이 CLI를 `~/.local/bin`에 설치하고, Homebrew 설치본(`hangul-nfc`, 예전 이름 `nfd2nfc` — 내용이 우리 스크립트일 때만)이 있으면 `brew uninstall` → `hangul-nfc setup` 순으로 진행한다. 새 CLI로 setup을 돌리므로 Finder 메뉴는 `~/.local/bin` CLI를 먼저 부르고, 자동 감시(LaunchAgent)도 새 CLI를 부르도록 다시 쓴다. tap에서 설치된 게 더 없으면 `brew untap wonjun-lab/tap`까지 하고, 다른 도구(codex-swap 등)가 남아 있으면 untap 하지 않고 정리 명령만 알려 준다. 2.0.4의 `~/.zprofile` PATH 블록 동작은 그대로다.
+- `hangul-nfc update`: Homebrew 설치본이면 `brew upgrade`(tap이 없어지면 실패) 대신 한 줄 설치 스크립트를 받아 검증한 뒤 실행해 같은 이전을 한다. `~/.local/bin` 설치본의 update는 그대로다.
+- `hangul-nfc doctor`: Homebrew 설치본이면 `! Homebrew 배포는 2.1.0에서 끝났습니다 → hangul-nfc update`와 한 줄 설치 명령을 보여 준다. 설치본은 없는데 tap만 남았으면 `brew untap wonjun-lab/tap`을 권한다(tap 폴더가 있을 때만 brew를 불러 느려지지 않는다). 자동 감시가 지워진 CLI를 부르고 있으면 `hangul-nfc setup`을 권한다.
+- `hangul-nfc setup`: 자동 감시가 다른 CLI를 부르고 있으면 이 CLI로 다시 쓴다(지운 Homebrew 경로를 부르며 조용히 멈추지 않게).
+- `hangul-nfc uninstall`: 예전 Homebrew 설치본(`nfd2nfc` 포함)을 `brew uninstall` 하고, tap에 남은 게 없으면 untap 한다. tap이 없어져도 통하도록 tap 이름 없이 keg 이름으로 지운다.
+- 예전 이름(`nfd2nfc`) 안내에서 `brew trust`·`brew migrate` 명령을 뺐다 — 이전은 한 줄 설치 하나다.
+
 ## [2.0.4] - 2026-10-03
 
 ### Fixed — 정리 대상
@@ -159,6 +172,7 @@
 - `install.sh` BIN_DIR 선택의 도달 불가능한 `elif` 죽은 코드 정리.
 - README 영문 사용법 한 줄에 누락됐던 `--reveal`/`-h` 추가.
 
+[2.1.0]: https://github.com/wonjun-lab/hangul-nfc/releases/tag/v2.1.0
 [2.0.4]: https://github.com/wonjun-lab/hangul-nfc/releases/tag/v2.0.4
 [2.0.3]: https://github.com/wonjun-lab/hangul-nfc/releases/tag/v2.0.3
 [2.0.2]: https://github.com/wonjun-lab/hangul-nfc/releases/tag/v2.0.2

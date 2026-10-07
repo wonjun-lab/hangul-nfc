@@ -12,6 +12,9 @@ FAIL=0
 # (Quick Action 명령은 항상 --reveal을 포함하므로 이 가드가 없으면 Finder가 튀어나오고
 #  헤드리스 CI에서는 AppleEvent가 120초 타임아웃 날 수 있다.)
 export HANGUL_NFC_NO_GUI=1
+# 실제 Homebrew를 절대 부르지 않는다(빈 값 = brew 없음). install.sh·CLI는 이 값이 있으면 /opt/homebrew 등을
+# 찾지 않는다 — 없으면 이 머신의 실제 Homebrew 설치본을 brew uninstall 할 수 있다. brew 경로는 아래 스텁으로만 시험한다.
+export HANGUL_NFC_BREW=""
 
 ok() { PASS=$((PASS + 1)); printf '  \033[32m✓\033[0m %s\n' "$1"; }
 ng() { FAIL=$((FAIL + 1)); printf '  \033[31m✗\033[0m %s\n' "$1"; }
@@ -543,13 +546,56 @@ if [ "$ub" -ne 0 ] && [ "$vb" != "hangul-nfc 99.0.0" ] && [ "$ug" -eq 0 ] && [ "
     ok "update: 검증 실패 시 원본 유지, 정상 파일로 교체"
 else ng "update 이상: bad rc=$ub ($vb) good rc=$ug ($vg)"; fi
 
-# [u6] update(Homebrew 설치본): brew upgrade로 위임
-WH="$TMP/uhome"; rm -rf "$WH"; mkdir -p "$WH" "$TMP/ubrew/Cellar/hangul-nfc/1.0/bin" "$TMP/ubrew/bin"
-cp "$HANGUL_NFC" "$TMP/ubrew/Cellar/hangul-nfc/1.0/bin/hangul-nfc"; ln -sf ../Cellar/hangul-nfc/1.0/bin/hangul-nfc "$TMP/ubrew/bin/hangul-nfc"
-uo=$(HOME="$WH" HANGUL_NFC_LATEST_VERSION=99.0.0 "$TMP/ubrew/bin/hangul-nfc" update 2>&1)
-if echo "$uo" | grep -q "upgrade wonjun-lab/tap/hangul-nfc"; then ok "update: Homebrew 설치본은 brew upgrade로 위임"
-elif ! command -v brew >/dev/null 2>&1; then printf '  - brew 없음 — [u6] 건너뜀\n'
-else ng "update brew 위임 이상: $uo"; fi
+# 가짜 Homebrew: $TMP/ubrew 를 prefix·저장소로 쓰는 brew 스텁. 받은 인자를 brew.log에 적고,
+# list는 installed 파일을, uninstall·untap은 Cellar·tap 폴더를 지워 흉내 낸다. 실제 Homebrew는 건드리지 않는다.
+# mk_brew <tap에서 설치된 formula 이름...> — hangul-nfc가 있으면 Cellar에 우리 스크립트(2.0.4)를 둔다.
+mk_brew() {
+    B="$TMP/ubrew"; rm -rf "$B"; mkdir -p "$B/bin" "$B/Library/Taps/wonjun-lab/homebrew-tap"; : > "$B/installed"
+    cat > "$B/bin/brew" <<'STUB'
+#!/bin/sh
+R=$(cd "$(dirname "$0")/.." && pwd)
+echo "$*" >> "$R/brew.log"
+for last in "$@"; do :; done
+case "$1" in
+    --prefix|--repository) echo "$R" ;;
+    list) cat "$R/installed" ;;
+    uninstall) rm -rf "${R:?}/Cellar/$last" "$R/bin/$last"; grep -v "/$last\$" "$R/installed" > "$R/i.tmp"; mv "$R/i.tmp" "$R/installed" ;;
+    untap) rm -rf "$R/Library/Taps/wonjun-lab" ;;
+esac
+STUB
+    chmod +x "$B/bin/brew"
+    for f in "$@"; do
+        echo "wonjun-lab/tap/$f" >> "$B/installed"
+        if [ "$f" = hangul-nfc ]; then
+            mkdir -p "$B/Cellar/hangul-nfc/2.0.4/bin"
+            cp "$HANGUL_NFC" "$B/Cellar/hangul-nfc/2.0.4/bin/hangul-nfc"
+            ln -sf ../Cellar/hangul-nfc/2.0.4/bin/hangul-nfc "$B/bin/hangul-nfc"
+        fi
+    done
+}
+
+# [u6] update(Homebrew 설치본): brew upgrade를 부르지 않고(tap이 없어진다) 한 줄 설치(install.sh)를 받아 실행해 옮긴다
+WH="$TMP/uhome"; rm -rf "$WH"; mkdir -p "$WH"; mk_brew hangul-nfc
+uo=$(HOME="$WH" HANGUL_NFC_BREW="$TMP/ubrew/bin/brew" HANGUL_NFC_LATEST_VERSION=99.0.0 \
+     HANGUL_NFC_INSTALL_URL="file://${HANGUL_NFC%/*}/install.sh" "$TMP/ubrew/bin/hangul-nfc" update 2>&1); u6=$?
+if [ "$u6" -eq 0 ] && ! grep -q upgrade "$TMP/ubrew/brew.log" 2>/dev/null \
+   && echo "$uo" | grep -q "Homebrew 배포는 2.1.0에서 끝났습니다" && echo "$uo" | grep -q "\[실행 예정\] /bin/sh .*/install.sh"; then
+    ok "update: Homebrew 설치본은 brew upgrade 대신 한 줄 설치로 이전"
+else ng "update Homebrew 이전 이상: rc=$u6 brew=[$(cat "$TMP/ubrew/brew.log" 2>/dev/null)] [$uo]"; fi
+
+# [u6b] doctor: Homebrew 설치본이면 배포 종료와 고칠 명령을 알린다. tap만 남았으면 untap 안내,
+#       같은 tap의 다른 formula(codex-swap)가 남아 있으면 untap을 권하지 않는다.
+WH="$TMP/uhome"; rm -rf "$WH"; mkdir -p "$WH"; mk_brew hangul-nfc
+d6a=$(HOME="$WH" HANGUL_NFC_BREW="$TMP/ubrew/bin/brew" "$TMP/ubrew/bin/hangul-nfc" doctor 2>&1); r6a=$?
+mk_brew
+d6b=$(HOME="$WH" HANGUL_NFC_BREW="$TMP/ubrew/bin/brew" /usr/bin/perl "$HANGUL_NFC" doctor 2>&1); r6b=$?
+mk_brew codex-swap
+d6c=$(HOME="$WH" HANGUL_NFC_BREW="$TMP/ubrew/bin/brew" /usr/bin/perl "$HANGUL_NFC" doctor 2>&1)
+if [ "$r6a" -ne 0 ] && echo "$d6a" | grep -q "! Homebrew 배포는 2.1.0에서 끝났습니다 → hangul-nfc update" \
+   && echo "$d6a" | grep -qF "curl -fsSL https://raw.githubusercontent.com/wonjun-lab/hangul-nfc/main/install.sh | sh" \
+   && [ "$r6b" -ne 0 ] && echo "$d6b" | grep -q "→ brew untap wonjun-lab/tap" && ! echo "$d6c" | grep -q "untap"; then
+    ok "doctor: Homebrew 설치본은 배포 종료·한 줄 설치 안내, 빈 tap은 untap 안내(다른 formula 있으면 안 함)"
+else ng "doctor Homebrew 안내 이상: rc=$r6a/$r6b [$d6a] [$d6b] [$d6c]"; fi
 
 # [u7] uninstall: 메뉴·감시·설정·로그와 표준 위치의 직접 설치 CLI를 지우고, 남의 파일·저장소 사본은 둔다
 WH="$TMP/uhome"; rm -rf "$WH"; mkdir -p "$WH/.local/bin" "$TMP/u7w"
@@ -604,7 +650,7 @@ WH="$TMP/uhome"; rm -rf "$WH" "$TMP/ubrew"; mkdir -p "$WH" "$TMP/ubrew/Cellar/ha
 printf '#!/bin/sh\necho rust-tool\n' > "$TMP/ubrew/Cellar/hangul-nfc/2.1.0/bin/hangul-nfc"; chmod +x "$TMP/ubrew/Cellar/hangul-nfc/2.1.0/bin/hangul-nfc"
 ln -sf ../Cellar/hangul-nfc/2.1.0/bin/hangul-nfc "$TMP/ubrew/bin/hangul-nfc"
 uo12=$(HOME="$WH" /usr/bin/perl "$HANGUL_NFC" uninstall 2>&1)
-if ! echo "$uo12" | grep -q "brew\|실행 예정" && [ -x "$TMP/ubrew/Cellar/hangul-nfc/2.1.0/bin/hangul-nfc" ]; then ok "uninstall: Homebrew의 동명 다른 도구는 건드리지 않음"
+if ! echo "$uo12" | grep -q "Homebrew\|brew uninstall\|실행 예정" &&[ -x "$TMP/ubrew/Cellar/hangul-nfc/2.1.0/bin/hangul-nfc" ]; then ok "uninstall: Homebrew의 동명 다른 도구는 건드리지 않음"
 else ng "uninstall이 동명의 다른 도구를 지우려 함: $uo12"; fi
 
 # [u13] 보호 폴더 판정은 대소문자를 가리지 않는다(APFS 기본: ~/downloads == ~/Downloads)
@@ -630,6 +676,42 @@ if [ "$ri14" -eq 0 ] && [ "$nb14" -eq 1 ] && [ "$pl14" -eq 1 ] \
    && ! grep -q "hangul-nfc PATH" "$WH/.zprofile" && grep -qx 'export FOO=1' "$WH/.zprofile" && [ ! -e "$WH/.local/bin/hangul-nfc" ]; then
     ok "install.sh: ~/.zprofile PATH 블록(1회)·새 창/전체 경로 안내, doctor 한 줄 명령, uninstall이 블록만 제거"
 else ng "PATH 블록 처리 이상: rc=$ri14 블록=$nb14 줄=$pl14 zprofile=[$(cat "$WH/.zprofile")]"; fi
+
+# [u15] Homebrew 설치본(2.0.x) 이전: install.sh가 ~/.local/bin에 설치 → brew uninstall → untap(tap에 남은 게 없을 때)
+#       → setup. 그 뒤 Finder 메뉴는 ~/.local/bin CLI를 먼저 부르고, 자동 감시 plist도 그 CLI를 부른다.
+WH="$TMP/uhome"; rm -rf "$WH" "$TMP/u15w"; mkdir -p "$WH" "$TMP/u15w"; mk_brew hangul-nfc
+HOME="$WH" "$TMP/ubrew/bin/hangul-nfc" setup >/dev/null 2>&1                    # Homebrew CLI가 만든 메뉴·감시(이전 전 상태)
+HOME="$WH" "$TMP/ubrew/bin/hangul-nfc" watch add "$TMP/u15w" >/dev/null 2>&1
+WP="$WH/Library/LaunchAgents/com.wonjun-lab.hangul-nfc.watch.plist"
+p15a=$(/usr/bin/plutil -extract "ProgramArguments.0" raw -o - "$WP" 2>/dev/null)
+i15=$(HOME="$WH" PATH=/usr/bin:/bin:/usr/sbin:/sbin HANGUL_NFC_BREW="$TMP/ubrew/bin/brew" /bin/sh "$INST" 2>&1); r15=$?
+p15b=$(/usr/bin/plutil -extract "ProgramArguments.0" raw -o - "$WP" 2>/dev/null)
+/usr/bin/plutil -extract "actions.0.action.ActionParameters.COMMAND_STRING" raw -o "$TMP/u15.sh" \
+    "$WH/Library/Services/NFC로 이름 정리.workflow/Contents/document.wflow" 2>/dev/null
+# shellcheck disable=SC2016  # 메뉴 스크립트에 적힌 그대로("$HOME" 미확장)를 찾는다
+first15=$(grep -m1 '^for c in' "$TMP/u15.sh" | grep -c '^for c in "$HOME"'"'"'/.local/bin/hangul-nfc'"'")
+if [ "$r15" -eq 0 ] && [ "$p15a" = "$TMP/ubrew/bin/hangul-nfc" ] && [ "$p15b" = "$WH/.local/bin/hangul-nfc" ] && [ "$first15" -eq 1 ] \
+   && grep -qx "uninstall --formula hangul-nfc" "$TMP/ubrew/brew.log" && grep -qx "untap wonjun-lab/tap" "$TMP/ubrew/brew.log" \
+   && [ ! -e "$TMP/ubrew/Cellar/hangul-nfc" ] && [ -x "$WH/.local/bin/hangul-nfc" ] \
+   && echo "$i15" | grep -q "Homebrew 배포는 2.1.0에서 끝났습니다" && echo "$i15" | grep -q "✓ Homebrew 탭 정리: brew untap wonjun-lab/tap" \
+   && echo "$i15" | grep -q "자동 감시가 이 CLI를 부르도록 갱신"; then
+    ok "install.sh: Homebrew 설치본 이전(brew uninstall·untap) + 메뉴·자동 감시가 ~/.local/bin CLI를 부름"
+else ng "Homebrew 이전 이상: rc=$r15 plist=$p15a→$p15b 메뉴첫후보=$first15 brew=[$(tr '\n' ';' < "$TMP/ubrew/brew.log")] [$i15]"; fi
+
+# [u16] 같은 tap의 다른 formula(codex-swap)가 남아 있으면 untap 하지 않고 정리 명령만 안내한다
+WH="$TMP/uhome"; rm -rf "$WH"; mkdir -p "$WH"; mk_brew hangul-nfc codex-swap
+i16=$(HOME="$WH" PATH=/usr/bin:/bin:/usr/sbin:/sbin HANGUL_NFC_BREW="$TMP/ubrew/bin/brew" /bin/sh "$INST" 2>&1); r16=$?
+if [ "$r16" -eq 0 ] && grep -qx "uninstall --formula hangul-nfc" "$TMP/ubrew/brew.log" && ! grep -q "^untap" "$TMP/ubrew/brew.log" \
+   && [ -d "$TMP/ubrew/Library/Taps/wonjun-lab/homebrew-tap" ] \
+   && echo "$i16" | grep -qF "brew uninstall codex-swap && brew untap wonjun-lab/tap" && echo "$i16" | grep -q "codex-swap은 자체 curl 설치"; then
+    ok "install.sh: tap에 다른 formula(codex-swap)가 있으면 untap 안 함 + 정리 명령 안내"
+else ng "codex-swap 남은 tap 처리 이상: rc=$r16 brew=[$(tr '\n' ';' < "$TMP/ubrew/brew.log")] [$i16]"; fi
+
+# [u17] Homebrew 설치본이 없으면 brew uninstall·untap을 부르지 않는다(tap도 없는 일반 Homebrew 사용자)
+WH="$TMP/uhome"; rm -rf "$WH"; mkdir -p "$WH"; mk_brew; rm -rf "$TMP/ubrew/Library/Taps"
+HOME="$WH" PATH=/usr/bin:/bin:/usr/sbin:/sbin HANGUL_NFC_BREW="$TMP/ubrew/bin/brew" /bin/sh "$INST" >/dev/null 2>&1; r17=$?
+if [ "$r17" -eq 0 ] && ! grep -q "^uninstall\|^untap\|^install\|^upgrade" "$TMP/ubrew/brew.log"; then ok "install.sh: Homebrew 설치본이 없으면 brew를 바꾸지 않음"
+else ng "Homebrew 없는 이전 이상: rc=$r17 brew=[$(tr '\n' ';' < "$TMP/ubrew/brew.log")]"; fi
 # ── 예전 이름(nfd2nfc, 1.x)에서 이전 ──
 # 예전 사용자 상태를 격리 HOME에 재현: 예전 에이전트·설정(감시 폴더 3개: 정상·사라짐·보호 위치)·로그·직접 설치 CLI
 mk_legacy() {

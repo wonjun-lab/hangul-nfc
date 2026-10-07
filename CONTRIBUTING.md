@@ -23,8 +23,5 @@ CI(`.github/workflows/ci.yml`)가 macOS에서 위를 자동 실행합니다.
 1. `hangul-nfc`의 `$VERSION`과 `CHANGELOG.md`를 새 버전으로 갱신, 커밋.
 2. 태그 푸시: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 3. `release.yml`이 Quick Action zip을 빌드해 GitHub Release에 첨부.
-4. Homebrew tap 갱신: 릴리스 tarball의 sha256을 구해 `wonjun-lab/homebrew-tap`의
-   `Formula/hangul-nfc.rb`(이 리포 `hangul-nfc.rb`가 원본)의 `url`/`sha256`을 갱신·커밋.
-   ```sh
-   curl -sL https://github.com/wonjun-lab/hangul-nfc/archive/refs/tags/vX.Y.Z.tar.gz | shasum -a 256
-   ```
+   한 줄 설치(`install.sh`)와 `hangul-nfc update`는 최신 릴리스를 받으므로 따로 갱신할 곳은 없습니다
+   (Homebrew 배포는 2.1.0에서 끝났습니다).
