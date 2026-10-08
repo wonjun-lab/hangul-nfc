@@ -66,7 +66,7 @@ curl -fsSL https://raw.githubusercontent.com/wonjun-lab/hangul-nfc/main/install.
 
 CLI를 `~/.local/bin` 에 설치하고 Finder 우클릭 메뉴까지 한 번에 설치합니다. `hangul-nfc` 명령은 **새 터미널 창부터** 쓸 수 있습니다(PATH를 `~/.zprofile` 에 자동으로 추가). 예전 이름(`nfd2nfc`)으로 설치했다면 이것만 다시 실행하면 옮겨집니다([자세히](#nfd2nfc에서-옮겨-오기)).
 
-> **Homebrew로 설치했다면:** Homebrew 배포는 2.1.0에서 끝났습니다 — 한 줄 설치를 다시 실행하면 옮겨집니다. `~/.local/bin` 에 새로 설치하고 Finder 메뉴·자동 감시를 새 CLI로 바꾼 뒤 `brew uninstall hangul-nfc` 와 `brew untap wonjun-lab/tap` 까지 해 줍니다(같은 탭의 다른 도구가 남아 있으면 untap은 하지 않고 정리 명령만 알려 줍니다). tap 저장소가 없어지면 `brew update` 가 실패하니 옮겨 두세요.
+> **Homebrew로 설치했다면:** Homebrew 배포는 2.1.0에서 끝났습니다 — 한 줄 설치를 다시 실행하면 옮겨집니다. `~/.local/bin` 에 새로 설치하고 Finder 메뉴·자동 감시를 새 CLI로 바꾼 뒤 `brew uninstall hangul-nfc` 와 `brew untap wonjun-lab/tap` 까지 해 줍니다(같은 탭의 다른 도구가 남아 있으면 untap은 하지 않고 정리 명령만 알려 줍니다). tap 저장소는 없어졌습니다 — tap이 남아 있으면 `brew update` 가 실패하니 옮겨 두세요.
 
 ### <img src="https://api.iconify.design/ph/cursor-click-bold.svg?color=%236E7DF2&width=20" width="20" /> 터미널 없이 — Finder 메뉴만
 

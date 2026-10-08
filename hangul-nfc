@@ -907,7 +907,7 @@ sub cli_candidates {
     return ("$ENV{HOME}/.local/bin/hangul-nfc", '/opt/homebrew/bin/hangul-nfc', '/usr/local/bin/hangul-nfc');
 }
 # ── Homebrew(2.0.x까지의 배포 경로) 정리 ──
-# Homebrew 배포는 2.1.0에서 끝났고 tap(wonjun-lab/tap) 저장소도 없어진다. 남은 설치본은 한 줄 설치가
+# Homebrew 배포는 2.1.0에서 끝났고 tap(wonjun-lab/tap) 저장소도 없어졌다. 남은 설치본은 한 줄 설치가
 # ~/.local/bin으로 옮기고(install.sh) brew uninstall·untap 한다. 여기 코드는 그 설치본을 알아보고 치우는 데만 쓴다.
 sub install_url      { 'https://raw.githubusercontent.com/wonjun-lab/hangul-nfc/main/install.sh' }
 sub install_oneliner { 'curl -fsSL ' . install_url() . ' | sh' }
