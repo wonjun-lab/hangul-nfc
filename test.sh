@@ -574,7 +574,7 @@ STUB
     done
 }
 
-# [u6] update(Homebrew 설치본): brew upgrade를 부르지 않고(tap이 없어진다) 한 줄 설치(install.sh)를 받아 실행해 옮긴다
+# [u6] update(Homebrew 설치본): brew upgrade를 부르지 않고(tap이 없어졌다) 한 줄 설치(install.sh)를 받아 실행해 옮긴다
 WH="$TMP/uhome"; rm -rf "$WH"; mkdir -p "$WH"; mk_brew hangul-nfc
 uo=$(HOME="$WH" HANGUL_NFC_BREW="$TMP/ubrew/bin/brew" HANGUL_NFC_LATEST_VERSION=99.0.0 \
      HANGUL_NFC_INSTALL_URL="file://${HANGUL_NFC%/*}/install.sh" "$TMP/ubrew/bin/hangul-nfc" update 2>&1); u6=$?

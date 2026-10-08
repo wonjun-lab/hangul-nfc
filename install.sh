@@ -17,7 +17,7 @@ set -eu
 # 끝까지 읽은 뒤 실행하고, 외부 명령의 표준입력도 끊는다.
 main() {
 REPO=wonjun-lab/hangul-nfc
-TAP=wonjun-lab/tap                              # 2.0.x까지의 Homebrew tap — 저장소가 없어진다
+TAP=wonjun-lab/tap                              # 2.0.x까지의 Homebrew tap — 저장소는 없어졌다
 MARK='^# hangul-nfc — macOS 한글 파일명'
 LEGACY_MARK='^# nfd2nfc — macOS 한글 파일명'   # 1.x 때 이름(nfd2nfc) 설치본 식별
 PATH_MARK_BEGIN='# >>> hangul-nfc PATH >>>'     # ~/.zprofile 블록 표식 — hangul-nfc의 path_mark_begin/end와 같아야 한다
@@ -72,7 +72,7 @@ case ":$PATH:" in
 esac
 
 # ── 2) Homebrew 설치본(2.0.x까지) → ~/.local/bin으로 이전 ──
-# Homebrew 배포는 2.1.0에서 끝났고 tap 저장소도 없어진다(그 뒤 brew update·upgrade가 실패한다).
+# Homebrew 배포는 2.1.0에서 끝났고 tap 저장소도 없어졌다(tap이 남은 Mac에서는 brew update·upgrade가 실패한다).
 # 순서: brew uninstall → (3) setup. setup을 새 CLI로 돌리므로 Finder 메뉴는 ~/.local/bin을 먼저 부르고,
 # 자동 감시(launchd plist)도 새 CLI를 부르도록 다시 쓴다. 지운 Homebrew 경로가 메뉴·감시에 남지 않는다.
 # HANGUL_NFC_BREW로 brew 경로를 바꿀 수 있다(빈 값 = brew 없음) — 테스트가 실제 Homebrew를 건드리지 않게.
